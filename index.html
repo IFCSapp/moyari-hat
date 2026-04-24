@@ -1,0 +1,337 @@
+﻿<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>モヤリハット</title>
+    <meta name="theme-color" content="#0d9488">
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="stylesheet" href="style.css">
+    <script src="app.js" defer></script>
+</head>
+<body>
+
+    <noscript>
+        <div class="noscript-warning" style="padding: 1rem; background-color: #fee2e2; color: #991b1b; text-align: center;">
+            このアプリを利用するには、お使いのブラウザでJavaScriptを有効にしてください。
+        </div>
+    </noscript>
+
+    <!-- メッセージ表示領域（トースト） -->
+    <div id="toast-message" role="status" aria-live="polite" hidden></div>
+
+    <!-- 初回ガイド画面 -->
+    <section id="view-guide" class="view" hidden>
+        <h1>モヤリハットを始める前に</h1>
+        <div class="guide-content">
+            <p>
+                ・記録は端末内に保存されます。<br>
+                ・外部への自動送信は行いません。<br>
+                ・パスワード、口座番号、住所、電話番号、マイナンバー、他人の個人情報などは書かないでください。<br>
+                ・このツールは医療的な診断や緊急対応の代替ではありません。<br>
+                ・強い希死念慮、他害のおそれ、虐待や被害の申告、強い体調悪化がある場合は、職員や支援者に直接伝える必要があります。
+            </p>
+        </div>
+        <div class="bottom-actions">
+            <button id="btn-guide-agree">確認して使い始める</button>
+        </div>
+    </section>
+
+    <!-- ホーム画面 -->
+    <section id="view-home" class="view" hidden>
+        <header>
+            <h1>モヤリハット</h1>
+            <h2>小さなモヤモヤに気づき、次の一手を選ぶメモ</h2>
+        </header>
+        <div class="description">
+            <p>「モヤリハット」は、まだ大きく困っているわけではないけれど、少し焦りそう、集中しづらい、止まりそう、相談しづらい、という小さなサインを言葉にするためのツールです。反省や報告のためではなく、早めに自分の状態に気づき、次の小さな一手を選ぶために使います。</p>
+            <p>これは、できていないことを探すためのアプリではありません。今の自分に起きている小さなサインを見つけ、次の一手を選ぶためのアプリです。</p>
+        </div>
+        <div class="main-actions">
+            <button id="btn-home-start">モヤリを記録する</button>
+            <button id="btn-home-records">記録を見る</button>
+            <button id="btn-home-edit">項目を編集する</button>
+            <button id="btn-home-about">このアプリについて</button>
+        </div>
+    </section>
+
+    <!-- Step 1: 行動のサインを選ぶ -->
+    <section id="view-step1-behavior" class="view" hidden>
+        <header>
+            <h2>いま、行動として近いものはありますか？</h2>
+            <p>これは、できていないことを探す画面ではありません。今の自分に起きているサインを見つけるための画面です。近いものを一つ選ぶだけでも大丈夫です。</p>
+        </header>
+
+        <div id="container-behavior-options" class="options-container">
+            <!-- JSで選択肢（チップ/カード）を生成 -->
+        </div>
+        <button id="btn-add-behavior">＋近い行動を追加</button>
+
+        <nav class="bottom-nav">
+            <button id="btn-step1-back">ホームへ戻る</button>
+            <button id="btn-step1-next">次へ</button>
+        </nav>
+    </section>
+
+    <!-- Step 2: モヤリの中身を選ぶ（並列カード） -->
+    <section id="view-step2-cards" class="view" hidden>
+        <header>
+            <h2>今のモヤリに関係していそうなものを選びます</h2>
+            <p>強く感じるものから選んでください。全部選ばなくても大丈夫です。今いちばん近いものを一つ選ぶだけでも使えます。</p>
+        </header>
+
+        <div class="cards-container">
+            <button id="card-external" class="selection-card">
+                <span class="card-title" style="display: block; font-weight: bold; font-size: 1.17em;">外的要因</span>
+                <span class="card-description" style="display: block; margin-top: 0.5em;">環境、情報、対人、時間など</span>
+                <span id="status-external" class="status-indicator"></span>
+            </button>
+            <button id="card-mind" class="selection-card">
+                <span class="card-title" style="display: block; font-weight: bold; font-size: 1.17em;">頭の中の通知</span>
+                <span class="card-description" style="display: block; margin-top: 0.5em;">できない系、ちゃんとしないと系など</span>
+                <span id="status-mind" class="status-indicator"></span>
+            </button>
+            <button id="card-body" class="selection-card">
+                <span class="card-title" style="display: block; font-weight: bold; font-size: 1.17em;">身体感覚</span>
+                <span class="card-description" style="display: block; margin-top: 0.5em;">部位と感覚</span>
+                <span id="status-body" class="status-indicator"></span>
+            </button>
+        </div>
+
+        <nav class="bottom-nav">
+            <button id="btn-step2-back">戻る</button>
+            <button id="btn-step2-next">次へ</button>
+        </nav>
+    </section>
+
+    <!-- Step 2-1: 外的要因の選択 (サブビュー) -->
+    <section id="view-step2-external" class="view sub-view" hidden>
+        <header>
+            <h2>外的要因</h2>
+            <p>これは、誰かのせいにするための確認ではありません。今の自分が動きにくくなっている条件を見つけるための画面です。変えられるものがあれば小さく変え、変えにくいものは次の一手を小さくします。</p>
+        </header>
+        <div id="container-external-options" class="options-container">
+            <!-- JSで選択肢を生成（強さ選択も含む） -->
+        </div>
+        <button id="btn-add-external">＋近い要因を追加</button>
+        <nav class="bottom-nav">
+            <button id="btn-external-done">選んで戻る</button>
+        </nav>
+    </section>
+
+    <!-- Step 2-2: 頭の中の通知の選択 (サブビュー) -->
+    <section id="view-step2-mind" class="view sub-view" hidden>
+        <header>
+            <h2>頭の中の通知</h2>
+            <p>これは、頭の中に来ている通知です。正しいか間違っているかを、今ここで決めなくて大丈夫です。まずは『来ている』と気づくところまでで十分です。</p>
+        </header>
+        <div id="container-mind-options" class="options-container">
+            <!-- JSで選択肢を生成（強さ選択も含む） -->
+        </div>
+        <button id="btn-add-mind">＋近い通知を追加</button>
+        <nav class="bottom-nav">
+            <button id="btn-mind-done">選んで戻る</button>
+        </nav>
+    </section>
+
+    <!-- Step 2-3: 身体感覚の選択 (サブビュー) -->
+    <section id="view-step2-body" class="view sub-view" hidden>
+        <header>
+            <h2>身体感覚</h2>
+            <p>正確に言えなくても大丈夫です。近いものを選ぶだけで十分です。体に何も感じない、よく分からない、という選択もできます。</p>
+        </header>
+
+        <h3>身体部位</h3>
+        <div id="container-body-parts" class="options-container">
+            <!-- JSで選択肢を生成 -->
+        </div>
+        <button id="btn-add-body-part">＋近い部位を追加</button>
+
+        <h3>感覚</h3>
+        <div id="container-body-sensations" class="options-container">
+            <!-- JSで選択肢を生成（強さ選択も含む） -->
+        </div>
+        <button id="btn-add-body-sensation">＋近い感覚を追加</button>
+
+        <nav class="bottom-nav">
+            <button id="btn-body-done">選んで戻る</button>
+        </nav>
+    </section>
+
+    <!-- Step 3: モヤリ度を選ぶ -->
+    <section id="view-step3-level" class="view" hidden>
+        <header>
+            <h2>今のモヤリ度はどのくらいですか？</h2>
+            <p>診断ではありません。今の自分の体感に近い数字を置くだけで大丈夫です。</p>
+        </header>
+
+        <div class="slider-container">
+            <label for="input-moyari-level" style="display: block; margin-bottom: 0.5em; font-weight: bold;">モヤリ度を選択</label>
+            <input type="range" id="input-moyari-level" min="0" max="10" step="1" value="0">
+            <div class="slider-labels">
+                <span>0: ほとんどない</span>
+                <span>3: 少し気になる</span>
+                <span>5: 少し支援があると動きやすい</span>
+                <span>7: 一人で続けるのは少し難しい</span>
+                <span>10: 一人で続けるのはかなり難しい</span>
+            </div>
+            <div id="display-moyari-level" class="level-display" aria-live="polite">0</div>
+        </div>
+
+        <nav class="bottom-nav">
+            <button id="btn-step3-back">戻る</button>
+            <button id="btn-step3-next">次へ</button>
+        </nav>
+    </section>
+
+    <!-- Step 4: まとめ文を確認する -->
+    <section id="view-step4-summary" class="view" hidden>
+        <header>
+            <h2>いまのモヤリ</h2>
+        </header>
+
+        <div id="container-summary-text" class="summary-box">
+            <!-- JSで自動生成された文章を表示 -->
+        </div>
+
+        <nav class="bottom-nav">
+            <button id="btn-step4-back">戻る</button>
+            <button id="btn-step4-next">次の一手へ</button>
+        </nav>
+    </section>
+
+    <!-- Step 5: 次の一手を選ぶ -->
+    <section id="view-step5-action" class="view" hidden>
+        <header>
+            <h2>今ここで、少し動きやすくする一手を選びます</h2>
+            <p>解決しようとしなくて大丈夫です。今より少し動きやすくするための小さな一手を選びます。</p>
+        </header>
+
+        <div id="container-action-options" class="options-container">
+            <!-- JSで選択肢を生成 -->
+        </div>
+        <button id="btn-add-action">＋一手を追加</button>
+
+        <nav class="bottom-nav">
+            <button id="btn-step5-back">戻る</button>
+            <button id="btn-step5-next">次へ</button>
+        </nav>
+    </section>
+
+    <!-- Step 6: 保存・共有画面 -->
+    <section id="view-step6-save" class="view" hidden>
+        <header>
+            <h2>記録の確認</h2>
+        </header>
+
+        <div class="review-box">
+            <h3>まとめ</h3>
+            <div id="review-summary-text"></div>
+
+            <h3>次の一手</h3>
+            <div id="review-next-action"></div>
+
+            <h3>共有用テキスト</h3>
+            <div id="review-share-text" class="share-box"></div>
+            <button id="btn-copy-share-text">共有文をコピーする</button>
+        </div>
+
+        <nav class="bottom-nav">
+            <button id="btn-step6-back">戻る</button>
+            <button id="btn-save-record">保存してホームへ</button>
+            <button id="btn-discard-record">保存せずにホームへ</button>
+        </nav>
+    </section>
+
+    <!-- 記録一覧画面 -->
+    <section id="view-records" class="view" hidden>
+        <header>
+            <h2>記録一覧</h2>
+        </header>
+
+        <div id="container-records-list" class="records-list">
+            <!-- JSでリストを生成 -->
+        </div>
+
+        <nav class="bottom-nav">
+            <button id="btn-records-home">ホームへ戻る</button>
+        </nav>
+    </section>
+
+    <!-- 記録詳細画面 -->
+    <section id="view-record-detail" class="view sub-view" hidden>
+        <header>
+            <h2>記録の詳細</h2>
+        </header>
+
+        <div id="container-record-detail-content" class="detail-box">
+            <!-- JSで詳細を表示 -->
+        </div>
+
+        <div class="actions-box">
+            <button id="btn-detail-copy">共有文を再コピーする</button>
+            <button id="btn-detail-delete">この記録を削除</button>
+        </div>
+
+        <nav class="bottom-nav">
+            <button id="btn-detail-back">一覧へ戻る</button>
+        </nav>
+    </section>
+
+    <!-- 項目編集画面 -->
+    <section id="view-edit" class="view" hidden>
+        <header>
+            <h2>項目の編集</h2>
+        </header>
+
+        <div class="category-selector">
+            <label for="select-edit-category" style="display: block; margin-bottom: 0.5em;">編集するカテゴリを選択：</label>
+            <select id="select-edit-category">
+                <option value="behavior">行動のサイン</option>
+                <option value="external">外的要因</option>
+                <option value="mind">頭の中の通知</option>
+                <option value="bodyPart">身体部位</option>
+                <option value="bodySensation">身体感覚</option>
+                <option value="action">次の一手</option>
+            </select>
+
+            <button id="btn-restore-default" type="button">初期項目を戻す</button>
+            <div id="container-edit-list" class="edit-list">
+                <!-- JSで編集可能なリストを生成 (表示/非表示、名称変更など) -->
+            </div>
+
+            <button id="btn-edit-add-item">＋新しい項目を追加</button>
+        </div>
+
+        <nav class="bottom-nav">
+            <button id="btn-edit-home">ホームへ戻る</button>
+        </nav>
+    </section>
+
+    <!-- 共通の項目追加モーダル -->
+    <div id="modal-add-item" class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-add-title" hidden>
+        <div class="modal-content">
+            <h3 id="modal-add-title">項目の追加</h3>
+            <label for="input-add-item-name" style="display: block; margin-bottom: 0.5em;">新しい項目名</label>
+            <input type="text" id="input-add-item-name" placeholder="新しい項目名を入力">
+            <div class="modal-actions">
+                <button id="btn-modal-cancel">キャンセル</button>
+                <button id="btn-modal-add">追加する</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- アプリについてのモーダル（簡易） -->
+    <div id="modal-about" class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-about-title" hidden>
+        <div class="modal-content">
+            <h3 id="modal-about-title">安全上の注意</h3>
+            <p>このアプリは、気持ちや行動を整理するための補助ツールです。医療的な診断や緊急対応の代わりにはなりません。強い希死念慮、他害のおそれ、虐待や被害の申告、強い体調悪化がある場合は、職員や支援者に直接伝えてください。</p>
+            <p>個人情報に関する注意：パスワード、口座番号、住所、電話番号、マイナンバー、他人の個人情報などは入力しないでください。</p>
+            <div class="modal-actions">
+                <button id="btn-about-close">閉じる</button>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>
