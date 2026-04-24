@@ -550,8 +550,12 @@ function updateFloatingNavForView(viewId) {
         btn.textContent = heading.textContent;
         btn.addEventListener('click', () => {
             scrollToElementWithOffset(heading);
+            btn.blur();
             const panel = floatingNav.querySelector('.floating-nav-panel');
-            if (panel) panel.hidden = true;
+            if (panel) {
+                panel.querySelectorAll('button').forEach(b => b.blur());
+                panel.hidden = true;
+            }
         });
         linksContainer.appendChild(btn);
     });
@@ -2051,18 +2055,28 @@ function setupEventListeners() {
     // フローティングナビの開閉処理
     document.querySelectorAll('[data-floating-menu-toggle]').forEach(toggleBtn => {
         toggleBtn.addEventListener('click', (e) => {
-            const currentNav = e.target.closest('[data-floating-nav]');
+            const currentNav = e.currentTarget.closest('[data-floating-nav]');
+            if (!currentNav) return;
+
             const currentPanel = currentNav.querySelector('.floating-nav-panel');
+            if (!currentPanel) return;
 
             // 他のパネルを閉じる
             document.querySelectorAll('.floating-nav-panel').forEach(panel => {
                 if (panel !== currentPanel) {
                     panel.hidden = true;
+                    panel.querySelectorAll('button').forEach(btn => btn.blur());
                 }
             });
 
-            if (currentPanel) {
-                currentPanel.hidden = !currentPanel.hidden;
+            const willOpen = currentPanel.hidden;
+            currentPanel.hidden = !currentPanel.hidden;
+
+            e.currentTarget.blur();
+
+            if (willOpen) {
+                currentPanel.scrollTop = 0;
+                currentPanel.querySelectorAll('button').forEach(btn => btn.blur());
             }
         });
     });
@@ -2071,10 +2085,16 @@ function setupEventListeners() {
     document.querySelectorAll('[data-scroll-top]').forEach(button => {
         button.addEventListener('click', (e) => {
             window.scrollTo({ top: 0, behavior: 'smooth' });
-            const currentNav = e.target.closest('[data-floating-nav]');
+
+            e.currentTarget.blur();
+
+            const currentNav = e.currentTarget.closest('[data-floating-nav]');
             if (currentNav) {
                 const currentPanel = currentNav.querySelector('.floating-nav-panel');
-                if (currentPanel) currentPanel.hidden = true;
+                if (currentPanel) {
+                    currentPanel.querySelectorAll('button').forEach(btn => btn.blur());
+                    currentPanel.hidden = true;
+                }
             }
         });
     });

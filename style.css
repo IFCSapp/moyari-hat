@@ -264,6 +264,24 @@ button {
             border-color: var(--color-primary);
         }
 
+        .floating-nav button:focus {
+            outline: none;
+            color: var(--color-text);
+            background-color: rgba(255, 255, 255, 0.96);
+            border-color: var(--color-border);
+        }
+
+        .floating-nav button:active {
+            color: var(--color-text);
+            background-color: rgba(255, 255, 255, 0.96);
+            border-color: var(--color-border);
+        }
+
+        .floating-nav button:focus-visible {
+            outline: 2px solid var(--color-primary);
+            outline-offset: 2px;
+        }
+
 .floating-nav-panel {
     width: min(240px, calc(100vw - 2rem));
     max-height: 55vh;
@@ -292,6 +310,24 @@ button {
         font-size: 0.8rem;
         color: var(--color-text);
     }
+
+        .floating-nav-panel button:focus {
+            outline: none;
+            color: var(--color-text);
+            background-color: rgba(255, 255, 255, 0.96);
+            border-color: var(--color-border);
+        }
+
+        .floating-nav-panel button:active {
+            color: var(--color-text);
+            background-color: rgba(255, 255, 255, 0.96);
+            border-color: var(--color-border);
+        }
+
+        .floating-nav-panel button:focus-visible {
+            outline: 2px solid var(--color-primary);
+            outline-offset: 2px;
+        }
 
 /* ========================================
    エクスポート関連ボタン・スタイル
