@@ -1,20 +1,25 @@
 # Visual Studio
 .vs/
 
-# OS files
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
-
-# Dependency folders
+# Dependencies
 node_modules/
 
 # Build outputs
 dist/
 build/
 
-# Local environment files
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local environment
 .env
 .env.local
+
+# Temporary files
+*.tmp
+*.temp

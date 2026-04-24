@@ -1,0 +1,526 @@
+﻿@charset "UTF-8";
+
+/* ========================================
+   変数定義 (Custom Properties)
+======================================== */
+:root {
+    /* メインカラー: 落ち着いたTeal系 (#0d9488) */
+    --color-primary: #0d9488;
+    --color-primary-hover: #0f766e;
+    --color-primary-light: #ccfbf1;
+    /* 背景・テキストカラー */
+    --color-bg: #f8fafc; /* 淡いスレート色 */
+    --color-surface: #ffffff;
+    --color-text: #334155; /* 濃いグレー */
+    --color-text-light: #64748b;
+    --color-border: #e2e8f0;
+    /* エラー・警告系 */
+    --color-error-bg: #fee2e2;
+    --color-error-text: #991b1b;
+    /* 余白 */
+    --space-xs: 0.25rem;
+    --space-sm: 0.5rem;
+    --space-md: 1rem;
+    --space-lg: 1.5rem;
+    --space-xl: 2.5rem;
+    /* 角丸 */
+    --radius-sm: 0.25rem;
+    --radius-md: 0.5rem;
+    --radius-lg: 0.75rem;
+    /* シャドウ */
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    --shadow-nav: 0 -4px 6px -1px rgb(0 0 0 / 0.05);
+}
+
+/* ========================================
+   リセット & ベーススタイル
+======================================== */
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0 auto;
+    padding: var(--space-md);
+    padding-bottom: 6rem; /* 下部ナビゲーション用の余白 */
+    max-width: 600px; /* PCでの最大幅を制限して中央寄せ */
+    min-height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    line-height: 1.6;
+    position: relative;
+}
+
+/* HTMLのインラインスタイルの代替（今後のため） */
+.noscript-warning {
+    padding: 1rem;
+    background-color: var(--color-error-bg);
+    color: var(--color-error-text);
+    text-align: center;
+    border-radius: var(--radius-md);
+    margin-bottom: var(--space-md);
+}
+
+label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: bold;
+}
+
+/* ========================================
+   表示制御
+======================================== */
+.view {
+    display: block;
+}
+
+/* hidden属性を持つ要素は確実に非表示にする */
+[hidden] {
+    display: none !important;
+}
+
+/* ========================================
+   タイポグラフィ
+======================================== */
+h1, h2, h3 {
+    margin-top: 0;
+    margin-bottom: var(--space-md);
+    color: #0f172a;
+    line-height: 1.3;
+}
+
+h1 {
+    font-size: 1.5rem;
+}
+
+h2 {
+    font-size: 1.25rem;
+}
+
+h3 {
+    font-size: 1.1rem;
+}
+
+p {
+    margin-top: 0;
+    margin-bottom: var(--space-md);
+}
+
+/* ========================================
+   ボタン (共通)
+======================================== */
+button {
+    font-family: inherit;
+    font-size: 1rem;
+    cursor: pointer;
+    border: 1px solid var(--color-border);
+    background-color: var(--color-surface);
+    color: var(--color-text);
+    border-radius: var(--radius-md);
+    padding: var(--space-sm) var(--space-md);
+    min-height: 44px; /* タップしやすさの確保 */
+    box-shadow: var(--shadow-sm);
+    transition: background-color 0.2s, box-shadow 0.2s, border-color 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+    button:hover {
+        background-color: var(--color-bg);
+    }
+
+    button:focus-visible {
+        outline: 2px solid var(--color-primary);
+        outline-offset: 2px;
+    }
+
+/* プライマリボタン（次へ進むアクションなど） */
+#btn-guide-agree,
+#btn-home-start,
+#btn-step1-next,
+#btn-step2-next,
+#btn-external-done,
+#btn-mind-done,
+#btn-body-done,
+#btn-step3-next,
+#btn-step4-next,
+#btn-step5-next,
+#btn-save-record,
+#btn-modal-add {
+    background-color: var(--color-primary);
+    color: #ffffff;
+    border-color: var(--color-primary);
+}
+
+    #btn-guide-agree:hover,
+    #btn-home-start:hover,
+    #btn-step1-next:hover,
+    #btn-step2-next:hover,
+    #btn-external-done:hover,
+    #btn-mind-done:hover,
+    #btn-body-done:hover,
+    #btn-step3-next:hover,
+    #btn-step4-next:hover,
+    #btn-step5-next:hover,
+    #btn-save-record:hover,
+    #btn-modal-add:hover {
+        background-color: var(--color-primary-hover);
+    }
+
+/* 追加ボタン（破線などにして区別） */
+[id^="btn-add-"] {
+    width: 100%;
+    border-style: dashed;
+    border-width: 2px;
+    background-color: transparent;
+    color: var(--color-primary);
+    border-color: var(--color-primary);
+    margin-top: var(--space-sm);
+    margin-bottom: var(--space-xl);
+}
+
+    [id^="btn-add-"]:hover {
+        background-color: var(--color-primary-light);
+    }
+
+/* ホーム画面のメニューボタン */
+.main-actions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    margin-top: var(--space-xl);
+}
+
+    .main-actions button {
+        padding: 1rem;
+        font-weight: bold;
+    }
+
+/* ========================================
+   選択チップ・カード領域
+======================================== */
+.options-container {
+    display: flex;
+    flex-wrap: wrap; /* 折り返しを許可 */
+    gap: var(--space-sm);
+    margin-bottom: var(--space-md);
+}
+
+/* JSで追加される想定の選択用チップクラス */
+.option-chip {
+    border-radius: 9999px;
+    padding: var(--space-sm) var(--space-md);
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    min-height: 44px;
+}
+
+    .option-chip[aria-pressed="true"] {
+        background-color: var(--color-primary-light);
+        border-color: var(--color-primary);
+        color: var(--color-primary-hover);
+        font-weight: bold;
+    }
+
+/* ========================================
+   Step2: 選択チップ・グループ・強さボタン
+======================================== */
+.option-group-title {
+    width: 100%;
+    margin-top: var(--space-md);
+    margin-bottom: var(--space-sm);
+}
+
+.option-wrapper {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-xs);
+    margin-bottom: var(--space-sm);
+    margin-right: var(--space-sm);
+}
+
+.strength-options {
+    display: flex;
+    gap: var(--space-xs);
+    padding-left: var(--space-sm);
+}
+
+.strength-button {
+    padding: 0.25rem var(--space-sm);
+    min-height: 36px; /* タップしやすいよう少し高さを確保 */
+    font-size: 0.8rem;
+    border-radius: var(--radius-sm);
+    background-color: var(--color-surface);
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+    box-shadow: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+    .strength-button:focus-visible {
+        outline: 2px solid var(--color-primary);
+        outline-offset: -1px;
+    }
+
+    .strength-button.is-selected {
+        background-color: var(--color-primary);
+        color: #ffffff;
+        border-color: var(--color-primary);
+    }
+
+/* ========================================
+   Step2: 並列カード
+======================================== */
+.cards-container {
+    display: flex;
+    flex-direction: column; /* スマホ最優先で縦並び */
+    gap: var(--space-md);
+    margin-bottom: var(--space-xl);
+}
+
+.selection-card {
+    text-align: left;
+    padding: var(--space-lg) var(--space-md);
+    border-radius: var(--radius-lg);
+    background-color: var(--color-surface);
+    border: 2px solid var(--color-border);
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    align-items: flex-start;
+}
+
+    .selection-card:focus-visible {
+        border-color: var(--color-primary);
+    }
+
+/* インラインスタイルの代替 */
+.card-title {
+    display: block;
+    font-weight: bold;
+    font-size: 1.17rem;
+    color: #0f172a;
+}
+
+.card-description {
+    display: block;
+    margin-top: 0.5rem;
+    color: var(--color-text-light);
+    font-size: 0.9rem;
+}
+
+.status-indicator {
+    position: absolute;
+    top: var(--space-md);
+    right: var(--space-md);
+    color: var(--color-primary);
+    font-weight: bold;
+}
+
+/* ========================================
+   下部ナビゲーション
+======================================== */
+.bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
+    max-width: 600px; /* PC幅に合わせる */
+    background-color: var(--color-surface);
+    padding: var(--space-md);
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-md);
+    border-top: 1px solid var(--color-border);
+    box-shadow: var(--shadow-nav);
+    z-index: 10;
+}
+
+    .bottom-nav button {
+        flex: 1;
+    }
+
+/* ========================================
+   スライダー (モヤリ度)
+======================================== */
+.slider-container {
+    background-color: var(--color-surface);
+    padding: var(--space-lg) var(--space-md);
+    border-radius: var(--radius-lg);
+    margin-bottom: var(--space-xl);
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--color-border);
+}
+
+input[type="range"] {
+    width: 100%;
+    margin-bottom: var(--space-md);
+    accent-color: var(--color-primary); /* モダンブラウザ用 */
+    cursor: pointer;
+}
+
+.slider-labels {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    font-size: 0.85rem;
+    color: var(--color-text-light);
+    margin-bottom: var(--space-md);
+}
+
+.level-display {
+    text-align: center;
+    font-size: 2.5rem;
+    font-weight: bold;
+    color: var(--color-primary);
+}
+
+/* ========================================
+   表示ボックス (まとめ, 記録確認など)
+======================================== */
+.summary-box, .review-box, .detail-box {
+    background-color: var(--color-surface);
+    padding: var(--space-md);
+    border-radius: var(--radius-lg);
+    margin-bottom: var(--space-xl);
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--color-border);
+}
+
+.summary-box,
+#review-summary-text,
+#review-next-action,
+#review-share-text {
+    white-space: pre-wrap;
+}
+
+.share-box {
+    background-color: var(--color-bg);
+    padding: var(--space-md);
+    border-radius: var(--radius-md);
+    border: 1px dashed var(--color-border);
+    margin-bottom: var(--space-md);
+    font-family: inherit;
+    color: var(--color-text);
+}
+
+/* ========================================
+   フォーム部品 (モーダル・編集用)
+======================================== */
+input[type="text"], select {
+    width: 100%;
+    padding: var(--space-sm) var(--space-md);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    font-size: 1rem;
+    font-family: inherit;
+    min-height: 44px; /* タップ領域 */
+    background-color: var(--color-surface);
+}
+
+    input[type="text"]:focus, select:focus {
+        outline: 2px solid var(--color-primary);
+        outline-offset: -1px;
+        border-color: var(--color-primary);
+    }
+
+.category-selector {
+    margin-bottom: var(--space-lg);
+}
+
+/* ========================================
+   リスト (記録一覧、編集一覧)
+======================================== */
+.records-list, .edit-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-xl);
+}
+
+/* JS生成想定のリストアイテム用クラス */
+.list-item {
+    background-color: var(--color-surface);
+    padding: var(--space-md);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+/* ========================================
+   モーダル
+======================================== */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(15, 23, 42, 0.6); /* Slate900の半透明 */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+    padding: var(--space-md);
+}
+
+.modal-content {
+    background-color: var(--color-surface);
+    padding: var(--space-lg);
+    border-radius: var(--radius-lg);
+    width: 100%;
+    max-width: 400px;
+    box-shadow: var(--shadow-md);
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-md);
+    margin-top: var(--space-lg);
+}
+
+/* ========================================
+   トーストメッセージ
+======================================== */
+#toast-message {
+    position: fixed;
+    top: var(--space-lg);
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: #334155; /* 濃い背景で目立たせる */
+    color: #ffffff;
+    padding: var(--space-sm) var(--space-lg);
+    border-radius: 9999px;
+    z-index: 100;
+    box-shadow: var(--shadow-md);
+    text-align: center;
+    width: max-content;
+    max-width: 90vw;
+    font-weight: bold;
+}
+
+/* ========================================
+   アクセシビリティ対応
+======================================== */
+/* アニメーションやトランジションの軽減 */
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}
