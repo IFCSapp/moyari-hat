@@ -67,6 +67,14 @@
         </div>
         <button id="btn-add-behavior">＋近い行動を追加</button>
 
+        <div class="floating-nav" data-floating-nav>
+            <button type="button" data-floating-menu-toggle>目次</button>
+            <div class="floating-nav-panel" hidden>
+                <button type="button" data-scroll-top>上へ</button>
+                <div data-floating-links></div>
+            </div>
+        </div>
+
         <nav class="bottom-nav">
             <button id="btn-step1-back">ホームへ戻る</button>
             <button id="btn-step1-next">次へ</button>
@@ -106,6 +114,9 @@
 
     <!-- Step 2-1: 外的要因の選択 (サブビュー) -->
     <section id="view-step2-external" class="view sub-view" hidden>
+        <div class="subview-sticky-bar">
+            <button id="btn-external-done" class="header-back-btn" type="button">← モヤリの中身に戻る</button>
+        </div>
         <header>
             <h2>外的要因</h2>
             <p>これは、誰かのせいにするための確認ではありません。今の自分が動きにくくなっている条件を見つけるための画面です。変えられるものがあれば小さく変え、変えにくいものは次の一手を小さくします。</p>
@@ -114,13 +125,21 @@
             <!-- JSで選択肢を生成（強さ選択も含む） -->
         </div>
         <button id="btn-add-external">＋近い要因を追加</button>
-        <nav class="bottom-nav">
-            <button id="btn-external-done">選んで戻る</button>
-        </nav>
+
+        <div class="floating-nav" data-floating-nav>
+            <button type="button" data-floating-menu-toggle>目次</button>
+            <div class="floating-nav-panel" hidden>
+                <button type="button" data-scroll-top>上へ</button>
+                <div data-floating-links></div>
+            </div>
+        </div>
     </section>
 
     <!-- Step 2-2: 頭の中の通知の選択 (サブビュー) -->
     <section id="view-step2-mind" class="view sub-view" hidden>
+        <div class="subview-sticky-bar">
+            <button id="btn-mind-done" class="header-back-btn" type="button">← モヤリの中身に戻る</button>
+        </div>
         <header>
             <h2>頭の中の通知</h2>
             <p>これは、頭の中に来ている通知です。正しいか間違っているかを、今ここで決めなくて大丈夫です。まずは『来ている』と気づくところまでで十分です。</p>
@@ -129,33 +148,54 @@
             <!-- JSで選択肢を生成（強さ選択も含む） -->
         </div>
         <button id="btn-add-mind">＋近い通知を追加</button>
-        <nav class="bottom-nav">
-            <button id="btn-mind-done">選んで戻る</button>
-        </nav>
+
+        <div class="floating-nav" data-floating-nav>
+            <button type="button" data-floating-menu-toggle>目次</button>
+            <div class="floating-nav-panel" hidden>
+                <button type="button" data-scroll-top>上へ</button>
+                <div data-floating-links></div>
+            </div>
+        </div>
     </section>
 
     <!-- Step 2-3: 身体感覚の選択 (サブビュー) -->
     <section id="view-step2-body" class="view sub-view" hidden>
+        <div class="subview-sticky-bar">
+            <button id="btn-body-done" class="header-back-btn" type="button">← モヤリの中身に戻る</button>
+        </div>
         <header>
             <h2>身体感覚</h2>
             <p>正確に言えなくても大丈夫です。近いものを選ぶだけで十分です。体に何も感じない、よく分からない、という選択もできます。</p>
         </header>
 
-        <h3>身体部位</h3>
+        <h3 id="body-parts-heading" class="floating-target-heading">まず、気になる部位を選びます</h3>
+        <p style="margin-bottom: 1rem; font-size: 0.9rem; color: var(--color-text-light);">選択済みの部位をもう一度押すと、その部位の感覚を編集できます。部位を外すときは、部位名の横の×を押してください。</p>
         <div id="container-body-parts" class="options-container">
             <!-- JSで選択肢を生成 -->
         </div>
         <button id="btn-add-body-part">＋近い部位を追加</button>
 
-        <h3>感覚</h3>
-        <div id="container-body-sensations" class="options-container">
-            <!-- JSで選択肢を生成（強さ選択も含む） -->
+        <div id="body-selected-parts-bar" class="body-selected-parts-bar" hidden>
+            <div class="body-selected-parts-title">選択済みの部位</div>
+            <div id="container-selected-body-parts" class="body-selected-parts-list"></div>
         </div>
-        <button id="btn-add-body-sensation">＋近い感覚を追加</button>
 
-        <nav class="bottom-nav">
-            <button id="btn-body-done">選んで戻る</button>
-        </nav>
+        <div id="body-sensations-section" style="margin-top: 2rem; border-top: 1px solid var(--color-border); padding-top: 1rem;" hidden>
+            <h3 id="body-sensations-heading" class="floating-target-heading">いま選んでいる部位：<span id="current-body-part-name" style="color: var(--color-primary);"></span></h3>
+            <p style="margin-bottom: 1rem;">近い感覚を選びます</p>
+            <div id="container-body-sensations" class="options-container">
+                <!-- JSで選択肢を生成（強さ選択も含む） -->
+            </div>
+            <button id="btn-add-body-sensation">＋近い感覚を追加</button>
+        </div>
+
+        <div class="floating-nav" data-floating-nav>
+            <button type="button" data-floating-menu-toggle>目次</button>
+            <div class="floating-nav-panel" hidden>
+                <button type="button" data-scroll-top>上へ</button>
+                <div data-floating-links></div>
+            </div>
+        </div>
     </section>
 
     <!-- Step 3: モヤリ度を選ぶ -->
@@ -204,7 +244,7 @@
     <section id="view-step5-action" class="view" hidden>
         <header>
             <h2>今ここで、少し動きやすくする一手を選びます</h2>
-            <p>解決しようとしなくて大丈夫です。今より少し動きやすくするための小さな一手を選びます。</p>
+            <p>解決しようとしなくて大丈夫です。今より少し動きやすくするための小さな一手を選びます。選んだ一手について、今どのくらい実行できそうかも選びます。</p>
         </header>
 
         <div id="container-action-options" class="options-container">
@@ -212,13 +252,21 @@
         </div>
         <button id="btn-add-action">＋一手を追加</button>
 
+        <div class="floating-nav" data-floating-nav>
+            <button type="button" data-floating-menu-toggle>目次</button>
+            <div class="floating-nav-panel" hidden>
+                <button type="button" data-scroll-top>上へ</button>
+                <div data-floating-links></div>
+            </div>
+        </div>
+
         <nav class="bottom-nav">
             <button id="btn-step5-back">戻る</button>
             <button id="btn-step5-next">次へ</button>
         </nav>
     </section>
 
-    <!-- Step 6: 保存・共有画面 -->
+    <!-- Step 6: 保存画面 -->
     <section id="view-step6-save" class="view" hidden>
         <header>
             <h2>記録の確認</h2>
@@ -230,16 +278,12 @@
 
             <h3>次の一手</h3>
             <div id="review-next-action"></div>
-
-            <h3>共有用テキスト</h3>
-            <div id="review-share-text" class="share-box"></div>
-            <button id="btn-copy-share-text">共有文をコピーする</button>
         </div>
 
         <nav class="bottom-nav">
             <button id="btn-step6-back">戻る</button>
             <button id="btn-save-record">保存してホームへ</button>
-            <button id="btn-discard-record">保存せずにホームへ</button>
+            <button id="btn-discard-record">保存せずホームへ戻る</button>
         </nav>
     </section>
 
@@ -248,6 +292,14 @@
         <header>
             <h2>記録一覧</h2>
         </header>
+
+        <div class="records-export-actions">
+            <button id="btn-export-all-records" class="export-all-button">すべての記録を書き出す</button>
+            <button id="btn-export-selected-records" class="export-selected-button" disabled>選択して書き出す</button>
+        </div>
+
+        <p id="selected-records-count" class="export-note">選択中の記録はありません。</p>
+        <p class="export-note">書き出したファイルは端末内に保存されます。必要に応じて自分で管理してください。</p>
 
         <div id="container-records-list" class="records-list">
             <!-- JSでリストを生成 -->
@@ -269,8 +321,8 @@
         </div>
 
         <div class="actions-box">
-            <button id="btn-detail-copy">共有文を再コピーする</button>
-            <button id="btn-detail-delete">この記録を削除</button>
+            <button id="btn-detail-export" class="detail-export-button">この記録を書き出す</button>
+            <button id="btn-detail-delete" class="detail-delete-button">この記録を削除</button>
         </div>
 
         <nav class="bottom-nav">

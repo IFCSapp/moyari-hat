@@ -1,12 +1,12 @@
 ﻿/**
- * モヤリハット - アプリケーションロジック (第6段階: 項目編集)
+ * モヤリハット - アプリケーションロジック (UX改善、エクスポート機能強化、フローティングナビ拡張)
  */
 
 /* ========================================
    1. 定数とlocalStorageキー
 ======================================== */
 const STORAGE_KEY = 'MOYARIHAT_STATE_V1';
-const APP_SCHEMA_VERSION = 2; // バージョン2へ引き上げ
+const APP_SCHEMA_VERSION = 3; // バージョン3を維持
 
 // アプリの初期状態構造
 const INITIAL_STATE = {
@@ -23,8 +23,7 @@ const INITIAL_CURRENT_RECORD = {
     externalFactors: [],
     mindNotifications: [],
     body: {
-        parts: [],
-        sensations: []
+        entries: [] // { partId: string, sensations: [{itemId, strength}] }
     },
     moyariLevel: 0,
     nextActions: []
@@ -34,6 +33,8 @@ let appState = null;
 let currentRecord = JSON.parse(JSON.stringify(INITIAL_CURRENT_RECORD));
 let currentDetailRecord = null; // 詳細表示中のレコード
 let currentAddItemContext = null; // 項目追加モーダルの一時状態
+let currentBodyPartId = null; // 身体感覚で現在選択されている部位
+let selectedExportRecordIds = new Set(); // 選択エクスポート用
 
 /* ========================================
    2. デフォルト項目データ
@@ -51,6 +52,7 @@ function createDefaultItems() {
                 category: category,
                 group: group,
                 label: item.label,
+                appliesToParts: item.appliesToParts || null,
                 isDefault: true,
                 isHidden: false,
                 createdAt: now,
@@ -238,23 +240,23 @@ function createDefaultItems() {
     ]);
     addItems('bodySensation', '熱・冷え系', [
         { id: 'body_sensation_temp_hot', label: '熱い' },
-        { id: 'body_sensation_temp_cold', label: '冷たい' },
+        { id: 'body_sensation_temp_cold', label: '冷たい', appliesToParts: ['body_part_hand', 'body_part_leg', 'body_part_arm', 'body_part_whole', 'body_part_unclear'] },
         { id: 'body_sensation_temp_sweat', label: '汗ばむ' },
-        { id: 'body_sensation_temp_facehot', label: '顔が熱い' },
-        { id: 'body_sensation_temp_limbcold', label: '手足が冷える' }
+        { id: 'body_sensation_temp_facehot', label: '熱い', appliesToParts: ['body_part_face', 'body_part_head', 'body_part_whole', 'body_part_unclear'] },
+        { id: 'body_sensation_temp_limbcold', label: '冷える', appliesToParts: ['body_part_hand', 'body_part_leg', 'body_part_arm', 'body_part_whole', 'body_part_unclear'] }
     ]);
     addItems('bodySensation', '息・胸まわり', [
-        { id: 'body_sensation_breath_shallow', label: '息が浅い' },
-        { id: 'body_sensation_breath_chesttight', label: '胸がつまる' },
-        { id: 'body_sensation_breath_chestheavy', label: '胸が重い' },
-        { id: 'body_sensation_breath_throat', label: 'のどがつまる' },
-        { id: 'body_sensation_breath_hard', label: '呼吸しづらい感じ' }
+        { id: 'body_sensation_breath_shallow', label: '息が浅い', appliesToParts: ['body_part_chest', 'body_part_neck', 'body_part_whole', 'body_part_unclear'] },
+        { id: 'body_sensation_breath_chesttight', label: 'つまる感じ', appliesToParts: ['body_part_chest', 'body_part_whole', 'body_part_unclear'] },
+        { id: 'body_sensation_breath_chestheavy', label: '重い感じ', appliesToParts: ['body_part_chest', 'body_part_whole', 'body_part_unclear'] },
+        { id: 'body_sensation_breath_throat', label: 'つまる感じ', appliesToParts: ['body_part_neck', 'body_part_mouth', 'body_part_whole', 'body_part_unclear'] },
+        { id: 'body_sensation_breath_hard', label: '呼吸しづらい感じ', appliesToParts: ['body_part_chest', 'body_part_neck', 'body_part_mouth', 'body_part_whole', 'body_part_unclear'] }
     ]);
     addItems('bodySensation', '感覚が薄い系', [
-        { id: 'body_sensation_faint_blur', label: 'ぼんやりする' },
+        { id: 'body_sensation_faint_blur', label: 'ぼんやりする', appliesToParts: ['body_part_head', 'body_part_eye', 'body_part_whole', 'body_part_unclear'] },
         { id: 'body_sensation_faint_far', label: '遠い感じ' },
         { id: 'body_sensation_faint_unreal', label: '実感が薄い' },
-        { id: 'body_sensation_faint_white', label: '頭が白い' },
+        { id: 'body_sensation_faint_white', label: '白くなる感じ', appliesToParts: ['body_part_head', 'body_part_whole', 'body_part_unclear'] },
         { id: 'body_sensation_faint_nothing', label: '何も感じない感じ' }
     ]);
     addItems('bodySensation', '痛み・不快感', [
@@ -335,12 +337,14 @@ function normalizeState(state) {
 
     const currentVersion = typeof state.schemaVersion === 'number' ? state.schemaVersion : 1;
 
+    // バージョン3未満の場合は身体感覚の構造が変わるため、古い記録はリセットしてスキーマを更新
     if (currentVersion < APP_SCHEMA_VERSION) {
-        state.items = createDefaultItems();
         state.records = [];
         state.schemaVersion = APP_SCHEMA_VERSION;
-    } else {
-        state.schemaVersion = currentVersion;
+    }
+
+    if (state.items.length === 0) {
+        state.items = createDefaultItems();
     }
 
     return state;
@@ -365,6 +369,29 @@ function loadState() {
                 appState.items = createDefaultItems();
                 needsSave = true;
             }
+
+            // 既存のデフォルト項目に新しいappliesToPartsとラベルを反映させる
+            const defaultItems = createDefaultItems();
+            appState.items.forEach(item => {
+                if (item.isDefault) {
+                    const def = defaultItems.find(d => d.id === item.id);
+                    if (def) {
+                        if (def.appliesToParts && !item.appliesToParts) {
+                            item.appliesToParts = def.appliesToParts;
+                            needsSave = true;
+                        }
+                        const idsToUpdateLabel = [
+                            'body_sensation_temp_facehot', 'body_sensation_temp_limbcold',
+                            'body_sensation_breath_chesttight', 'body_sensation_breath_chestheavy',
+                            'body_sensation_breath_throat', 'body_sensation_faint_white'
+                        ];
+                        if (idsToUpdateLabel.includes(item.id) && item.label !== def.label) {
+                            item.label = def.label;
+                            needsSave = true;
+                        }
+                    }
+                }
+            });
 
             if (needsSave) {
                 saveState();
@@ -396,6 +423,11 @@ function saveState() {
 function switchView(viewId) {
     document.querySelectorAll('.view').forEach(view => {
         view.hidden = true;
+    });
+
+    // 画面遷移時に開いているフローティングナビパネルを全て閉じる
+    document.querySelectorAll('.floating-nav-panel').forEach(panel => {
+        panel.hidden = true;
     });
 
     const targetView = document.getElementById(viewId);
@@ -446,17 +478,16 @@ function closeAddItemModal() {
     closeModal('modal-add-item');
 }
 
-async function copyTextToClipboard(text) {
+async function copyTextToClipboard(text, successMessage = 'コピーしました') {
     if (!text) return;
 
     if (navigator.clipboard && navigator.clipboard.writeText) {
         try {
             await navigator.clipboard.writeText(text);
-            showToast('共有文をコピーしました');
+            showToast(successMessage);
             return;
         } catch (err) {
             console.warn('Clipboard API failed, falling back to execCommand', err);
-            // エラーの場合はフォールバック処理へと進む
         }
     }
 
@@ -471,7 +502,7 @@ async function copyTextToClipboard(text) {
         document.body.removeChild(textarea);
 
         if (successful) {
-            showToast('共有文をコピーしました');
+            showToast(successMessage);
         } else {
             showToast('コピーに失敗しました。テキストを選択してコピーしてください。');
         }
@@ -479,6 +510,222 @@ async function copyTextToClipboard(text) {
         console.error('Fallback copy failed', err);
         showToast('コピーに失敗しました。テキストを選択してコピーしてください。');
     }
+}
+
+// フローティングナビゲーションのスクロール補助関数
+function scrollToElementWithOffset(element, offset = 72) {
+    const rect = element.getBoundingClientRect();
+    const top = window.scrollY + rect.top - offset;
+    window.scrollTo({ top, behavior: 'smooth' });
+}
+
+function updateFloatingNavForView(viewId) {
+    const view = document.getElementById(viewId);
+    if (!view) return;
+
+    const floatingNav = view.querySelector('[data-floating-nav]');
+    if (!floatingNav) return;
+
+    const linksContainer = floatingNav.querySelector('[data-floating-links]');
+    if (!linksContainer) return;
+
+    linksContainer.innerHTML = '';
+
+    const headings = view.querySelectorAll('.option-group-title, .floating-target-heading');
+
+    headings.forEach((heading, index) => {
+        if (!heading.id) {
+            heading.id = `${viewId}-heading-${index}`;
+        }
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = heading.textContent;
+        btn.addEventListener('click', () => {
+            scrollToElementWithOffset(heading);
+            const panel = floatingNav.querySelector('.floating-nav-panel');
+            if (panel) panel.hidden = true;
+        });
+        linksContainer.appendChild(btn);
+    });
+}
+
+/* ========================================
+   エクスポート (ファイル書き出し) 関数群
+======================================== */
+function downloadTextFile(filename, text) {
+    try {
+        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        return true;
+    } catch (err) {
+        console.error("Download failed", err);
+        return false;
+    }
+}
+
+function formatDateForFilename(isoString) {
+    const d = new Date(isoString);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const hh = String(d.getHours()).padStart(2, '0');
+    const min = String(d.getMinutes()).padStart(2, '0');
+    return `${yyyy}${mm}${dd}_${hh}${min}`;
+}
+
+// テキスト出力用の強さグループ関数
+function formatGroupedText(itemsWithLabels, scaleType = 'intensity') {
+    let groups = {};
+    if (scaleType === 'feasibility') {
+        groups = {
+            strong: { label: '◎ やる', items: itemsWithLabels.filter(i => i.strength === 'strong') },
+            some: { label: '○ できそう', items: itemsWithLabels.filter(i => i.strength === 'some' || !i.strength) },
+            slight: { label: '△ 少しできそう', items: itemsWithLabels.filter(i => i.strength === 'slight') }
+        };
+    } else {
+        groups = {
+            strong: { label: '◎ 強い', items: itemsWithLabels.filter(i => i.strength === 'strong') },
+            some: { label: '○ ある', items: itemsWithLabels.filter(i => i.strength === 'some' || !i.strength) },
+            slight: { label: '△ 少し', items: itemsWithLabels.filter(i => i.strength === 'slight') }
+        };
+    }
+
+    let parts = [];
+    ['strong', 'some', 'slight'].forEach(key => {
+        if (groups[key].items.length > 0) {
+            parts.push(`${groups[key].label}\n${groups[key].items.map(item => `・${item.label}`).join('\n')}`);
+        }
+    });
+
+    return parts.length > 0 ? parts.join('\n\n') : '未選択';
+}
+
+function generateRecordExportText(record) {
+    let textParts = [];
+    textParts.push("モヤリハット記録\n");
+    textParts.push(`日時：\n${formatDate(record.createdAt)}\n`);
+    textParts.push(`モヤリ度：\n${record.moyariLevel}\n`);
+    textParts.push(`まとめ：\n${record.summaryText || 'なし'}\n`);
+
+    // 行動のサイン
+    let behaviorText = '未選択';
+    if (record.behaviorSigns && record.behaviorSigns.length > 0) {
+        behaviorText = getRecordSelectedLabels(record, record.behaviorSigns).map(s => `・${s.label}`).join('\n');
+    }
+    textParts.push(`行動のサイン：\n${behaviorText}\n`);
+
+    // 影響していそうな条件
+    let externalText = '未選択';
+    if (record.externalFactors && record.externalFactors.length > 0) {
+        externalText = formatGroupedText(getRecordSelectedLabels(record, record.externalFactors), 'intensity');
+    }
+    textParts.push(`影響していそうな条件：\n${externalText}\n`);
+
+    // 頭の中の通知
+    let mindText = '未選択';
+    if (record.mindNotifications && record.mindNotifications.length > 0) {
+        mindText = formatGroupedText(getRecordSelectedLabels(record, record.mindNotifications), 'intensity');
+    }
+    textParts.push(`頭の中の通知：\n${mindText}\n`);
+
+    // 身体感覚
+    let bodyText = '未選択';
+    if (record.body && record.body.entries && record.body.entries.length > 0) {
+        bodyText = formatGroupedText(getBodySensationsWithLabels(record), 'intensity');
+    }
+    textParts.push(`身体感覚：\n${bodyText}\n`);
+
+    // 次の一手
+    let actionText = '未選択';
+    if (record.nextActions && record.nextActions.length > 0) {
+        actionText = formatGroupedText(getRecordSelectedLabels(record, record.nextActions), 'feasibility');
+    }
+    textParts.push(`次の一手：\n${actionText}\n`);
+
+    return textParts.join('\n');
+}
+
+function generateRecordsExportText(records, title) {
+    let parts = [];
+    parts.push(`${title}\n`);
+    parts.push(`書き出し日時：\n${formatDate(new Date().toISOString())}\n`);
+    parts.push(`記録件数：\n${records.length}件\n`);
+
+    records.forEach((record, index) => {
+        parts.push(`========================================\n${index + 1}件目\n========================================\n`);
+        parts.push(generateRecordExportText(record));
+    });
+
+    return parts.join('\n');
+}
+
+function generateAllRecordsExportText() {
+    return generateRecordsExportText(appState.records, 'モヤリハット記録一覧');
+}
+
+function generateSelectedRecordsExportText(records) {
+    return generateRecordsExportText(records, 'モヤリハット選択記録');
+}
+
+
+/* ========================================
+   選択エクスポートの状態管理
+======================================== */
+function updateSelectedExportState() {
+    // 存在しないIDをパージ
+    const currentRecordIds = new Set(appState.records.map(r => r.id));
+    for (const id of selectedExportRecordIds) {
+        if (!currentRecordIds.has(id)) {
+            selectedExportRecordIds.delete(id);
+        }
+    }
+
+    const count = selectedExportRecordIds.size;
+    const countEl = document.getElementById('selected-records-count');
+    const btn = document.getElementById('btn-export-selected-records');
+
+    if (countEl) {
+        if (count === 0) {
+            countEl.textContent = '選択中の記録はありません。';
+        } else {
+            countEl.textContent = `${count}件の記録を選択中です。`;
+        }
+    }
+
+    if (btn) {
+        btn.disabled = count === 0;
+    }
+}
+
+
+/* ========================================
+   未保存確認とリセットロジック
+======================================== */
+function hasCurrentRecordDraft() {
+    return currentRecord.behaviorSigns.length > 0 ||
+        currentRecord.externalFactors.length > 0 ||
+        currentRecord.mindNotifications.length > 0 ||
+        currentRecord.body.entries.length > 0 ||
+        currentRecord.moyariLevel > 0 ||
+        currentRecord.nextActions.length > 0;
+}
+
+function confirmDiscardDraft() {
+    if (!hasCurrentRecordDraft()) return true;
+    return confirm('保存していない内容は消えます。ホームへ戻りますか？');
+}
+
+function resetCurrentRecord() {
+    currentRecord = JSON.parse(JSON.stringify(INITIAL_CURRENT_RECORD));
+    currentBodyPartId = null;
 }
 
 /* ========================================
@@ -491,6 +738,7 @@ function addCustomItem(category, group, label) {
         category: category,
         group: group,
         label: label,
+        appliesToParts: null,
         isDefault: false,
         isHidden: false,
         createdAt: new Date().toISOString(),
@@ -502,10 +750,15 @@ function addCustomItem(category, group, label) {
 }
 
 /* ========================================
-   6. 描画と選択処理 (第2段階)
+   6. 描画と選択処理 (第2段階・第8段階改修)
 ======================================== */
-function getVisibleItemsByCategory(category) {
-    const items = appState.items.filter(item => item.category === category && !item.isHidden);
+function getVisibleItemsByCategory(category, filterFn = null) {
+    let items = appState.items.filter(item => item.category === category && !item.isHidden);
+
+    if (filterFn) {
+        items = items.filter(filterFn);
+    }
+
     const grouped = {};
     items.forEach(item => {
         if (!grouped[item.group]) {
@@ -521,7 +774,9 @@ function renderGroupedOptions(containerId, category, selectedList, options) {
     if (!container) return;
     container.innerHTML = '';
 
-    const groupedItems = getVisibleItemsByCategory(category);
+    const filterFn = options.filterFn || null;
+    const groupedItems = getVisibleItemsByCategory(category, filterFn);
+    const scaleType = options.scaleType || 'intensity';
 
     for (const groupName in groupedItems) {
         const groupTitle = document.createElement('h3');
@@ -539,11 +794,16 @@ function renderGroupedOptions(containerId, category, selectedList, options) {
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'option-chip';
+            if (options.currentActiveId === item.id) {
+                btn.classList.add('is-current-part'); // 身体部位の現在選択中ハイライト
+            }
             btn.textContent = item.label;
             btn.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
 
             btn.addEventListener('click', () => {
-                if (isSelected) {
+                if (isSelected && options.onSelectedClick) {
+                    options.onSelectedClick(item.id);
+                } else if (isSelected) {
                     options.onRemove(item.id);
                 } else {
                     options.onSelect(item.id, 'some');
@@ -552,15 +812,38 @@ function renderGroupedOptions(containerId, category, selectedList, options) {
 
             wrapper.appendChild(btn);
 
+            if (options.showRemoveButton && isSelected) {
+                wrapper.classList.add('has-remove');
+                const removeBtn = document.createElement('button');
+                removeBtn.type = 'button';
+                removeBtn.className = 'option-remove-button';
+                removeBtn.textContent = '×';
+                removeBtn.setAttribute('aria-label', `${item.label}を選択から外す`);
+                removeBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    options.onRemove(item.id);
+                });
+                wrapper.appendChild(removeBtn);
+            }
+
             if (options.showStrength && isSelected) {
                 const strengthContainer = document.createElement('div');
                 strengthContainer.className = 'strength-options';
 
-                const strengths = [
-                    { val: 'strong', label: '◎ 強い' },
-                    { val: 'some', label: '○ ある' },
-                    { val: 'slight', label: '△ 少し' }
-                ];
+                let strengths = [];
+                if (scaleType === 'feasibility') {
+                    strengths = [
+                        { val: 'strong', label: '◎ やる' },
+                        { val: 'some', label: '○ できそう' },
+                        { val: 'slight', label: '△ 少しできそう' }
+                    ];
+                } else {
+                    strengths = [
+                        { val: 'strong', label: '◎ 強い' },
+                        { val: 'some', label: '○ ある' },
+                        { val: 'slight', label: '△ 少し' }
+                    ];
+                }
 
                 strengths.forEach(st => {
                     const sBtn = document.createElement('button');
@@ -610,11 +893,13 @@ function renderBehaviorSigns() {
             renderBehaviorSigns();
         }
     });
+    updateFloatingNavForView('view-step1-behavior');
 }
 
 function renderExternalFactors() {
     renderGroupedOptions('container-external-options', 'external', currentRecord.externalFactors, {
         showStrength: true,
+        scaleType: 'intensity',
         onSelect: (itemId, strength) => {
             currentRecord.externalFactors.push({ itemId, strength });
             addToSelectedOrder('external');
@@ -633,11 +918,13 @@ function renderExternalFactors() {
             renderExternalFactors();
         }
     });
+    updateFloatingNavForView('view-step2-external');
 }
 
 function renderMindNotifications() {
     renderGroupedOptions('container-mind-options', 'mind', currentRecord.mindNotifications, {
         showStrength: true,
+        scaleType: 'intensity',
         onSelect: (itemId, strength) => {
             currentRecord.mindNotifications.push({ itemId, strength });
             addToSelectedOrder('mind');
@@ -656,57 +943,175 @@ function renderMindNotifications() {
             renderMindNotifications();
         }
     });
+    updateFloatingNavForView('view-step2-mind');
+}
+
+// --- 身体感覚の描画ロジック ---
+function getBodyEntry(partId) {
+    return currentRecord.body.entries.find(e => e.partId === partId);
+}
+
+function ensureBodyEntry(partId) {
+    let entry = getBodyEntry(partId);
+    if (!entry) {
+        entry = { partId: partId, sensations: [] };
+        currentRecord.body.entries.push(entry);
+    }
+    return entry;
+}
+
+function removeBodyEntry(partId) {
+    currentRecord.body.entries = currentRecord.body.entries.filter(e => e.partId !== partId);
+}
+
+function updateBodyOrder() {
+    if (currentRecord.body.entries.length > 0) {
+        addToSelectedOrder('body');
+    } else {
+        removeFromSelectedOrder('body');
+    }
+}
+
+// 選択済み部位 追従バーの描画
+function renderSelectedBodyPartsBar() {
+    const bar = document.getElementById('body-selected-parts-bar');
+    const container = document.getElementById('container-selected-body-parts');
+    if (!bar || !container) return;
+
+    if (currentRecord.body.entries.length === 0) {
+        bar.hidden = true;
+        return;
+    }
+
+    bar.hidden = false;
+    container.innerHTML = '';
+
+    currentRecord.body.entries.forEach(entry => {
+        const item = getItemById(entry.partId);
+        if (!item) return;
+
+        const pill = document.createElement('button');
+        pill.type = 'button';
+        pill.className = 'body-part-pill';
+        if (entry.partId === currentBodyPartId) {
+            pill.classList.add('is-active');
+        }
+
+        const labelSpan = document.createElement('span');
+        labelSpan.textContent = item.label;
+        pill.appendChild(labelSpan);
+
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'body-part-pill-remove';
+        removeBtn.textContent = '×';
+        removeBtn.setAttribute('aria-label', `${item.label}を削除`);
+        removeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            removeBodyEntry(entry.partId);
+            if (currentBodyPartId === entry.partId) {
+                const nextEntry = currentRecord.body.entries[0];
+                currentBodyPartId = nextEntry ? nextEntry.partId : null;
+            }
+            updateBodyOrder();
+            renderBodyParts();
+            renderBodySensationsForPart();
+            renderSelectedBodyPartsBar();
+        });
+
+        pill.addEventListener('click', () => {
+            currentBodyPartId = entry.partId;
+            renderBodyParts();
+            renderBodySensationsForPart();
+            renderSelectedBodyPartsBar();
+        });
+
+        pill.appendChild(removeBtn);
+        container.appendChild(pill);
+    });
 }
 
 function renderBodyParts() {
-    renderGroupedOptions('container-body-parts', 'bodyPart', currentRecord.body.parts, {
-        showStrength: true,
-        onSelect: (itemId, strength) => {
-            currentRecord.body.parts.push({ itemId, strength });
-            addToSelectedOrder('body');
+    const selectedParts = currentRecord.body.entries.map(e => ({ itemId: e.partId }));
+    renderGroupedOptions('container-body-parts', 'bodyPart', selectedParts, {
+        showStrength: false, // 部位には強さを出さない
+        currentActiveId: currentBodyPartId,
+        showRemoveButton: true,
+        onSelectedClick: (itemId) => {
+            currentBodyPartId = itemId;
             renderBodyParts();
+            renderBodySensationsForPart();
+            renderSelectedBodyPartsBar();
+        },
+        onSelect: (itemId) => {
+            ensureBodyEntry(itemId);
+            currentBodyPartId = itemId;
+            updateBodyOrder();
+            renderBodyParts();
+            renderBodySensationsForPart();
+            renderSelectedBodyPartsBar();
         },
         onRemove: (itemId) => {
-            currentRecord.body.parts = currentRecord.body.parts.filter(i => i.itemId !== itemId);
-            if (currentRecord.body.parts.length === 0 && currentRecord.body.sensations.length === 0) {
-                removeFromSelectedOrder('body');
+            removeBodyEntry(itemId);
+            if (currentBodyPartId === itemId) {
+                const nextEntry = currentRecord.body.entries[0];
+                currentBodyPartId = nextEntry ? nextEntry.partId : null;
             }
+            updateBodyOrder();
             renderBodyParts();
-        },
-        onChangeStrength: (itemId, strength) => {
-            const item = currentRecord.body.parts.find(i => i.itemId === itemId);
-            if (item) item.strength = strength;
-            renderBodyParts();
+            renderBodySensationsForPart();
+            renderSelectedBodyPartsBar();
         }
     });
+    updateFloatingNavForView('view-step2-body');
 }
 
-function renderBodySensations() {
-    renderGroupedOptions('container-body-sensations', 'bodySensation', currentRecord.body.sensations, {
+function renderBodySensationsForPart() {
+    const section = document.getElementById('body-sensations-section');
+    if (!section) return;
+
+    if (!currentBodyPartId) {
+        section.hidden = true;
+        updateFloatingNavForView('view-step2-body');
+        return;
+    }
+
+    section.hidden = false;
+    const partNameEl = document.getElementById('current-body-part-name');
+    const partItem = getItemById(currentBodyPartId);
+    if (partNameEl) partNameEl.textContent = partItem ? partItem.label : '不明な部位';
+
+    const entry = getBodyEntry(currentBodyPartId);
+    if (!entry) return;
+
+    renderGroupedOptions('container-body-sensations', 'bodySensation', entry.sensations, {
         showStrength: true,
+        scaleType: 'intensity',
+        filterFn: (item) => {
+            if (!item.appliesToParts || item.appliesToParts.length === 0) return true;
+            return item.appliesToParts.includes(currentBodyPartId);
+        },
         onSelect: (itemId, strength) => {
-            currentRecord.body.sensations.push({ itemId, strength });
-            addToSelectedOrder('body');
-            renderBodySensations();
+            entry.sensations.push({ itemId, strength });
+            renderBodySensationsForPart();
         },
         onRemove: (itemId) => {
-            currentRecord.body.sensations = currentRecord.body.sensations.filter(i => i.itemId !== itemId);
-            if (currentRecord.body.parts.length === 0 && currentRecord.body.sensations.length === 0) {
-                removeFromSelectedOrder('body');
-            }
-            renderBodySensations();
+            entry.sensations = entry.sensations.filter(i => i.itemId !== itemId);
+            renderBodySensationsForPart();
         },
         onChangeStrength: (itemId, strength) => {
-            const item = currentRecord.body.sensations.find(i => i.itemId === itemId);
+            const item = entry.sensations.find(i => i.itemId === itemId);
             if (item) item.strength = strength;
-            renderBodySensations();
+            renderBodySensationsForPart();
         }
     });
+    updateFloatingNavForView('view-step2-body');
 }
 
 function renderNextActions() {
     renderGroupedOptions('container-action-options', 'action', currentRecord.nextActions, {
         showStrength: true,
+        scaleType: 'feasibility',
         onSelect: (itemId, strength) => {
             currentRecord.nextActions.push({ itemId, strength });
             renderNextActions();
@@ -721,6 +1126,7 @@ function renderNextActions() {
             renderNextActions();
         }
     });
+    updateFloatingNavForView('view-step5-action');
 }
 
 function updateCardIndicators() {
@@ -733,12 +1139,12 @@ function updateCardIndicators() {
 
     updateText('status-external', currentRecord.externalFactors.length);
     updateText('status-mind', currentRecord.mindNotifications.length);
-    const bodyCount = currentRecord.body.parts.length + currentRecord.body.sensations.length;
+    const bodyCount = currentRecord.body.entries.length;
     updateText('status-body', bodyCount);
 }
 
 /* ========================================
-   7. 文章生成と確認 (第3段階)
+   7. 文章生成と確認
 ======================================== */
 function getItemById(itemId) {
     return appState.items.find(item => item.id === itemId);
@@ -773,14 +1179,79 @@ function getRecordSelectedLabels(record, selectedArray) {
     });
 }
 
-// 将来の記録詳細画面での表示用として関数は残しておく
-function getStrengthText(strength) {
-    switch (strength) {
-        case 'strong': return '強く';
-        case 'slight': return '少し';
-        case 'some':
-        default: return '';
+// 強さでグループ化してDOMを生成する関数 (保存済み・作成中両対応)
+function createStrengthGroupedDOM(itemsWithLabels, scaleType = 'intensity') {
+    const wrapper = document.createElement('div');
+
+    let groups = {};
+    if (scaleType === 'feasibility') {
+        groups = {
+            strong: { label: '◎ やる', items: itemsWithLabels.filter(i => i.strength === 'strong') },
+            some: { label: '○ できそう', items: itemsWithLabels.filter(i => i.strength === 'some' || !i.strength) },
+            slight: { label: '△ 少しできそう', items: itemsWithLabels.filter(i => i.strength === 'slight') }
+        };
+    } else {
+        groups = {
+            strong: { label: '◎ 強い', items: itemsWithLabels.filter(i => i.strength === 'strong') },
+            some: { label: '○ ある', items: itemsWithLabels.filter(i => i.strength === 'some' || !i.strength) },
+            slight: { label: '△ 少し', items: itemsWithLabels.filter(i => i.strength === 'slight') }
+        };
     }
+
+    ['strong', 'some', 'slight'].forEach(key => {
+        if (groups[key].items.length > 0) {
+            const groupDiv = document.createElement('div');
+            groupDiv.className = 'strength-group';
+
+            const titleDiv = document.createElement('strong');
+            titleDiv.textContent = groups[key].label;
+            groupDiv.appendChild(titleDiv);
+
+            const ul = document.createElement('ul');
+            groups[key].items.forEach(item => {
+                const li = document.createElement('li');
+                li.textContent = item.label;
+                ul.appendChild(li);
+            });
+            groupDiv.appendChild(ul);
+            wrapper.appendChild(groupDiv);
+        }
+    });
+
+    if (wrapper.childNodes.length === 0) {
+        wrapper.textContent = '未選択';
+    }
+
+    return wrapper;
+}
+
+// 身体感覚の部位と感覚をフラットな配列にする (表示用)
+function getBodySensationsWithLabels(record) {
+    const list = [];
+    if (!record.body || !record.body.entries) return list;
+
+    record.body.entries.forEach(entry => {
+        // ラベル取得は過去記録も考慮
+        const partLabel = record.itemSnapshot && record.itemSnapshot[entry.partId] ?
+            record.itemSnapshot[entry.partId].label : (getItemById(entry.partId)?.label || '不明な部位');
+
+        if (entry.sensations && entry.sensations.length > 0) {
+            entry.sensations.forEach(sens => {
+                const sensLabel = record.itemSnapshot && record.itemSnapshot[sens.itemId] ?
+                    record.itemSnapshot[sens.itemId].label : (getItemById(sens.itemId)?.label || '不明な感覚');
+                list.push({
+                    label: `${partLabel}：${sensLabel}`,
+                    strength: sens.strength
+                });
+            });
+        } else {
+            list.push({
+                label: `${partLabel}：気になっている`,
+                strength: 'some'
+            });
+        }
+    });
+    return list;
 }
 
 function generateSummaryText() {
@@ -802,58 +1273,31 @@ function generateSummaryText() {
             const minds = getSelectedLabels(currentRecord.mindNotifications).map(s => `「${s.label}」`).join('、');
             summaryParts.push(`頭の中では、${minds} という通知が来ています。`);
         }
-        else if (category === 'body' && (currentRecord.body.parts.length > 0 || currentRecord.body.sensations.length > 0)) {
-            let bodyText = '';
-            const parts = getSelectedLabels(currentRecord.body.parts).map(s => s.label).join('と');
-            const sensations = getSelectedLabels(currentRecord.body.sensations).map(s => s.label).join('、');
+        else if (category === 'body' && currentRecord.body.entries.length > 0) {
+            const bodyLabels = getBodySensationsWithLabels(currentRecord);
+            let bodyTextParts = [];
+            const strongItems = bodyLabels.filter(i => i.strength === 'strong');
+            const someItems = bodyLabels.filter(i => i.strength === 'some' || !i.strength);
+            const slightItems = bodyLabels.filter(i => i.strength === 'slight');
 
-            if (parts && sensations) {
-                bodyText = `体では、${parts}に、${sensations}という感じがあります。`;
-            } else if (parts) {
-                bodyText = `体では、${parts} が気になります。`;
-            } else if (sensations) {
-                bodyText = `体では、${sensations}という感じがあります。`;
+            if (strongItems.length > 0) {
+                bodyTextParts.push(`◎ 強い\n${strongItems.map(i => `・${i.label}`).join('\n')}`);
             }
-            if (bodyText) summaryParts.push(bodyText);
+            if (someItems.length > 0) {
+                bodyTextParts.push(`○ ある\n${someItems.map(i => `・${i.label}`).join('\n')}`);
+            }
+            if (slightItems.length > 0) {
+                bodyTextParts.push(`△ 少し\n${slightItems.map(i => `・${i.label}`).join('\n')}`);
+            }
+
+            if (bodyTextParts.length > 0) {
+                summaryParts.push(`体では、次のような感じがあります。\n\n${bodyTextParts.join('\n\n')}`);
+            }
         }
     });
 
-    summaryParts.push("今は、次の一手を少し小さくするタイミングかもしれません。");
+    summaryParts.push("今は、別のやり方を選ぶと動きやすくなるかもしれません。");
     return summaryParts.join('\n\n');
-}
-
-function generateShareText() {
-    let parts = [];
-
-    if (currentRecord.behaviorSigns.length > 0) {
-        const behaviors = getSelectedLabels(currentRecord.behaviorSigns).map(s => s.label).join('や');
-        parts.push(`今、${behaviors}などのサインが出ています。`);
-    } else {
-        parts.push(`今、少し動きが止まりそうです。`);
-    }
-
-    // 長くなりすぎるのを防ぐため、外的要因は含めず、行動、身体、頭の通知、次の一手を優先する
-    currentRecord.selectedOrder.forEach(category => {
-        if (category === 'body') {
-            const bp = getSelectedLabels(currentRecord.body.parts).map(s => s.label).join('や');
-            const bs = getSelectedLabels(currentRecord.body.sensations).map(s => s.label).join('、');
-            if (bp && bs) parts.push(`体では${bp}に${bs}という感じがあります。`);
-            else if (bs) parts.push(`体では${bs}という感じがあります。`);
-        }
-        if (category === 'mind') {
-            const mn = getSelectedLabels(currentRecord.mindNotifications).map(s => `「${s.label}」`).join('、');
-            if (mn) parts.push(`頭の中では${mn}という通知が来ています。`);
-        }
-    });
-
-    if (currentRecord.nextActions.length > 0) {
-        const actions = getSelectedLabels(currentRecord.nextActions).map(s => s.label).join('か、');
-        parts.push(`まず「${actions}」を試したいです。`);
-    } else {
-        parts.push(`まず、次の一手を小さくしたいです。`);
-    }
-
-    return parts.join('');
 }
 
 function renderSummary() {
@@ -865,8 +1309,6 @@ function renderSummary() {
 }
 
 function renderReview() {
-    currentRecord.shareText = generateShareText();
-
     const summaryContainer = document.getElementById('review-summary-text');
     if (summaryContainer) {
         summaryContainer.textContent = currentRecord.summaryText || "";
@@ -874,22 +1316,19 @@ function renderReview() {
 
     const actionContainer = document.getElementById('review-next-action');
     if (actionContainer) {
+        actionContainer.innerHTML = '';
         if (currentRecord.nextActions.length > 0) {
-            const actions = getSelectedLabels(currentRecord.nextActions).map(s => `・${s.label}`);
-            actionContainer.textContent = actions.join('\n');
+            const labelsWithStrength = getSelectedLabels(currentRecord.nextActions);
+            // 次の一手はfeasibilityスケールで表示
+            actionContainer.appendChild(createStrengthGroupedDOM(labelsWithStrength, 'feasibility'));
         } else {
             actionContainer.textContent = '未選択';
         }
     }
-
-    const shareContainer = document.getElementById('review-share-text');
-    if (shareContainer) {
-        shareContainer.textContent = currentRecord.shareText;
-    }
 }
 
 /* ========================================
-   8. 記録の保存・一覧・詳細表示 (第4段階)
+   8. 記録の保存・一覧・詳細表示
 ======================================== */
 
 // 日付フォーマット関数
@@ -916,8 +1355,12 @@ function createRecordFromCurrent() {
     collectIds(record.behaviorSigns);
     collectIds(record.externalFactors);
     collectIds(record.mindNotifications);
-    collectIds(record.body.parts);
-    collectIds(record.body.sensations);
+    if (record.body && record.body.entries) {
+        record.body.entries.forEach(entry => {
+            itemIds.add(entry.partId);
+            collectIds(entry.sensations);
+        });
+    }
     collectIds(record.nextActions);
 
     record.itemSnapshot = {};
@@ -940,14 +1383,16 @@ function saveCurrentRecord() {
     const newRecord = createRecordFromCurrent();
     appState.records.unshift(newRecord);
     saveState();
-    currentRecord = JSON.parse(JSON.stringify(INITIAL_CURRENT_RECORD));
+    resetCurrentRecord();
 }
 
 // 記録を削除
 function deleteRecord(recordId) {
     if (confirm("この記録を削除してもよろしいですか？")) {
         appState.records = appState.records.filter(r => r.id !== recordId);
+        selectedExportRecordIds.delete(recordId);
         saveState();
+        updateSelectedExportState();
         return true;
     }
     return false;
@@ -964,6 +1409,8 @@ function renderRecordsList() {
         const emptyMsg = document.createElement('p');
         emptyMsg.textContent = 'まだ記録はありません。';
         container.appendChild(emptyMsg);
+        selectedExportRecordIds.clear();
+        updateSelectedExportState();
         return;
     }
 
@@ -972,6 +1419,28 @@ function renderRecordsList() {
         itemDiv.className = 'list-item';
         itemDiv.style.flexDirection = 'column';
         itemDiv.style.alignItems = 'flex-start';
+
+        // 選択用チェックボックス行
+        const selectRowDiv = document.createElement('label');
+        selectRowDiv.className = 'record-select-row';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = selectedExportRecordIds.has(record.id);
+        checkbox.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                selectedExportRecordIds.add(record.id);
+            } else {
+                selectedExportRecordIds.delete(record.id);
+            }
+            updateSelectedExportState();
+        });
+
+        const selectLabelSpan = document.createElement('span');
+        selectLabelSpan.textContent = 'この記録を選択';
+
+        selectRowDiv.appendChild(checkbox);
+        selectRowDiv.appendChild(selectLabelSpan);
 
         // ヘッダー情報（日付とモヤリ度）
         const headerDiv = document.createElement('div');
@@ -1033,13 +1502,11 @@ function renderRecordsList() {
 
         // アクションボタン領域
         const actionsDiv = document.createElement('div');
-        actionsDiv.style.display = 'flex';
-        actionsDiv.style.gap = '0.5rem';
-        actionsDiv.style.width = '100%';
+        actionsDiv.className = 'record-list-actions';
 
         const detailBtn = document.createElement('button');
         detailBtn.textContent = '詳細を見る';
-        detailBtn.style.flex = '1';
+        detailBtn.className = 'record-detail-button';
         detailBtn.addEventListener('click', () => {
             renderRecordDetail(record.id);
             switchView('view-record-detail');
@@ -1047,9 +1514,7 @@ function renderRecordsList() {
 
         const deleteBtn = document.createElement('button');
         deleteBtn.textContent = '削除';
-        deleteBtn.style.backgroundColor = 'var(--color-error-bg)';
-        deleteBtn.style.color = 'var(--color-error-text)';
-        deleteBtn.style.borderColor = 'var(--color-error-text)';
+        deleteBtn.className = 'record-delete-button';
         deleteBtn.addEventListener('click', () => {
             if (deleteRecord(record.id)) {
                 renderRecordsList();
@@ -1059,12 +1524,15 @@ function renderRecordsList() {
         actionsDiv.appendChild(detailBtn);
         actionsDiv.appendChild(deleteBtn);
 
+        itemDiv.appendChild(selectRowDiv);
         itemDiv.appendChild(headerDiv);
         itemDiv.appendChild(contentDiv);
         itemDiv.appendChild(actionsDiv);
 
         container.appendChild(itemDiv);
     });
+
+    updateSelectedExportState();
 }
 
 // 記録詳細の描画
@@ -1079,7 +1547,7 @@ function renderRecordDetail(recordId) {
 
     container.innerHTML = '';
 
-    const createSection = (title, contentText) => {
+    const createSection = (title, contentDOM) => {
         const section = document.createElement('div');
         section.style.marginBottom = '1rem';
 
@@ -1089,10 +1557,14 @@ function renderRecordDetail(recordId) {
         h3.style.marginBottom = '0.25rem';
         section.appendChild(h3);
 
-        const p = document.createElement('div');
-        p.style.whiteSpace = 'pre-wrap';
-        p.textContent = contentText;
-        section.appendChild(p);
+        if (typeof contentDOM === 'string') {
+            const p = document.createElement('div');
+            p.style.whiteSpace = 'pre-wrap';
+            p.textContent = contentDOM;
+            section.appendChild(p);
+        } else {
+            section.appendChild(contentDOM);
+        }
 
         return section;
     };
@@ -1101,53 +1573,65 @@ function renderRecordDetail(recordId) {
     container.appendChild(createSection('モヤリ度', record.moyariLevel.toString()));
     container.appendChild(createSection('まとめ文', record.summaryText || 'なし'));
 
-    // 選択項目（過去の選択も、ラベルと強さの表示用テキストとして展開する）
-    // getRecordSelectedLabelsを利用してスナップショットのラベルを優先する
-    const selectedContent = [];
+    // 選択項目
+    const selectedContentWrapper = document.createElement('div');
+
     if (record.behaviorSigns.length > 0) {
-        selectedContent.push('【行動のサイン】\n' + getRecordSelectedLabels(record, record.behaviorSigns).map(s => `・${s.label}`).join('\n'));
+        const h = document.createElement('h4');
+        h.textContent = '【行動のサイン】';
+        h.style.marginTop = '0.5em';
+        selectedContentWrapper.appendChild(h);
+
+        const ul = document.createElement('ul');
+        ul.style.listStyleType = 'none';
+        ul.style.paddingLeft = '1em';
+        getRecordSelectedLabels(record, record.behaviorSigns).forEach(s => {
+            const li = document.createElement('li');
+            li.textContent = `・${s.label}`;
+            ul.appendChild(li);
+        });
+        selectedContentWrapper.appendChild(ul);
     }
 
     record.selectedOrder.forEach(category => {
         if (category === 'external' && record.externalFactors.length > 0) {
-            selectedContent.push('【影響していそうな条件】\n' + getRecordSelectedLabels(record, record.externalFactors).map(s => {
-                const st = getStrengthText(s.strength);
-                return st ? `・[${st}] ${s.label}` : `・${s.label}`;
-            }).join('\n'));
+            const h = document.createElement('h4');
+            h.textContent = '【影響していそうな条件】';
+            h.style.marginTop = '0.5em';
+            selectedContentWrapper.appendChild(h);
+            const dom = createStrengthGroupedDOM(getRecordSelectedLabels(record, record.externalFactors), 'intensity');
+            selectedContentWrapper.appendChild(dom);
         }
         if (category === 'mind' && record.mindNotifications.length > 0) {
-            selectedContent.push('【頭の中の通知】\n' + getRecordSelectedLabels(record, record.mindNotifications).map(s => {
-                const st = getStrengthText(s.strength);
-                return st ? `・[${st}] ${s.label}` : `・${s.label}`;
-            }).join('\n'));
+            const h = document.createElement('h4');
+            h.textContent = '【頭の中の通知】';
+            h.style.marginTop = '0.5em';
+            selectedContentWrapper.appendChild(h);
+            const dom = createStrengthGroupedDOM(getRecordSelectedLabels(record, record.mindNotifications), 'intensity');
+            selectedContentWrapper.appendChild(dom);
         }
-        if (category === 'body') {
-            if (record.body.parts.length > 0) {
-                selectedContent.push('【身体部位】\n' + getRecordSelectedLabels(record, record.body.parts).map(s => {
-                    const st = getStrengthText(s.strength);
-                    return st ? `・[${st}] ${s.label}` : `・${s.label}`;
-                }).join('\n'));
-            }
-            if (record.body.sensations.length > 0) {
-                selectedContent.push('【身体感覚】\n' + getRecordSelectedLabels(record, record.body.sensations).map(s => {
-                    const st = getStrengthText(s.strength);
-                    return st ? `・[${st}] ${s.label}` : `・${s.label}`;
-                }).join('\n'));
-            }
+        if (category === 'body' && record.body && record.body.entries && record.body.entries.length > 0) {
+            const h = document.createElement('h4');
+            h.textContent = '【身体感覚】';
+            h.style.marginTop = '0.5em';
+            selectedContentWrapper.appendChild(h);
+            const dom = createStrengthGroupedDOM(getBodySensationsWithLabels(record), 'intensity');
+            selectedContentWrapper.appendChild(dom);
         }
     });
 
-    if (selectedContent.length > 0) {
-        container.appendChild(createSection('選択項目', selectedContent.join('\n\n')));
+    if (selectedContentWrapper.childNodes.length > 0) {
+        container.appendChild(createSection('選択項目', selectedContentWrapper));
     }
 
-    let nextActionsText = '未選択';
+    let nextActionsDOM = document.createElement('div');
     if (record.nextActions && record.nextActions.length > 0) {
-        nextActionsText = getRecordSelectedLabels(record, record.nextActions).map(s => `・${s.label}`).join('\n');
+        // 次の一手はfeasibilityスケールで表示
+        nextActionsDOM = createStrengthGroupedDOM(getRecordSelectedLabels(record, record.nextActions), 'feasibility');
+    } else {
+        nextActionsDOM.textContent = '未選択';
     }
-    container.appendChild(createSection('次の一手', nextActionsText));
-
-    container.appendChild(createSection('共有文', record.shareText || 'なし'));
+    container.appendChild(createSection('次の一手', nextActionsDOM));
 }
 
 /* ========================================
@@ -1162,9 +1646,13 @@ function isItemUsedInRecords(itemId) {
         if (record.behaviorSigns?.some(i => i.itemId === itemId)) return true;
         if (record.externalFactors?.some(i => i.itemId === itemId)) return true;
         if (record.mindNotifications?.some(i => i.itemId === itemId)) return true;
-        if (record.body?.parts?.some(i => i.itemId === itemId)) return true;
-        if (record.body?.sensations?.some(i => i.itemId === itemId)) return true;
         if (record.nextActions?.some(i => i.itemId === itemId)) return true;
+        if (record.body && record.body.entries) {
+            for (const entry of record.body.entries) {
+                if (entry.partId === itemId) return true;
+                if (entry.sensations?.some(i => i.itemId === itemId)) return true;
+            }
+        }
     }
     return false;
 }
@@ -1190,7 +1678,6 @@ function renderEditItems() {
 
     items.forEach(item => {
         const itemDiv = document.createElement('div');
-        // CSSクラスに依存しないようスタイルを直接設定
         itemDiv.style.border = '1px solid var(--color-border)';
         itemDiv.style.borderRadius = 'var(--radius-md)';
         itemDiv.style.padding = '1rem';
@@ -1345,7 +1832,7 @@ function restoreDefaultItems(category) {
     defaultItems.forEach(defItem => {
         const existingItem = appState.items.find(i => i.id === defItem.id);
         if (existingItem) {
-            // 既存のデフォルト項目は非表示状態を解除する（ラベルは維持）
+            // 既存のデフォルト項目は非表示状態を解除する（ラベルやappliesToPartsは維持）
             existingItem.isHidden = false;
         } else {
             // もし何らかの理由で削除されていたら再追加
@@ -1387,8 +1874,8 @@ function setupEventListeners() {
 
     // --- ホーム画面 ---
     document.getElementById('btn-home-start')?.addEventListener('click', () => {
-        // 新しい記録の初期化
-        currentRecord = JSON.parse(JSON.stringify(INITIAL_CURRENT_RECORD));
+        // 新しい記録と選択状態の初期化
+        resetCurrentRecord();
 
         // スライダーの初期化
         const slider = document.getElementById('input-moyari-level');
@@ -1415,6 +1902,8 @@ function setupEventListeners() {
 
     // --- Step 1: 行動 ---
     document.getElementById('btn-step1-back')?.addEventListener('click', () => {
+        if (!confirmDiscardDraft()) return;
+        resetCurrentRecord();
         switchView('view-home');
     });
     document.getElementById('btn-step1-next')?.addEventListener('click', () => {
@@ -1439,11 +1928,12 @@ function setupEventListeners() {
     });
     document.getElementById('card-body')?.addEventListener('click', () => {
         renderBodyParts();
-        renderBodySensations();
+        renderSelectedBodyPartsBar();
+        renderBodySensationsForPart();
         switchView('view-step2-body');
     });
 
-    // --- Step 2 サブビューの戻る処理 ---
+    // --- Step 2 サブビューの戻る処理 (ヘッダーへ移動) ---
     document.getElementById('btn-external-done')?.addEventListener('click', () => {
         updateCardIndicators();
         switchView('view-step2-cards');
@@ -1495,7 +1985,7 @@ function setupEventListeners() {
         switchView('view-step6-save');
     });
 
-    // --- Step 6: 保存・共有 ---
+    // --- Step 6: 保存 ---
     document.getElementById('btn-step6-back')?.addEventListener('click', () => {
         switchView('view-step5-action');
     });
@@ -1505,18 +1995,12 @@ function setupEventListeners() {
         switchView('view-home');
     });
     document.getElementById('btn-discard-record')?.addEventListener('click', () => {
-        // 破棄時はnullではなく初期値のディープコピーに戻す
-        currentRecord = JSON.parse(JSON.stringify(INITIAL_CURRENT_RECORD));
+        if (!confirmDiscardDraft()) return;
+        resetCurrentRecord();
         switchView('view-home');
     });
 
-    // 共有文のコピー
-    document.getElementById('btn-copy-share-text')?.addEventListener('click', () => {
-        if (!currentRecord || !currentRecord.shareText) return;
-        copyTextToClipboard(currentRecord.shareText);
-    });
-
-    // --- 記録一覧・詳細 ---
+    // --- 記録一覧・詳細・エクスポート ---
     document.getElementById('btn-records-home')?.addEventListener('click', () => {
         switchView('view-home');
     });
@@ -1531,9 +2015,82 @@ function setupEventListeners() {
             switchView('view-records');
         }
     });
-    document.getElementById('btn-detail-copy')?.addEventListener('click', () => {
-        if (!currentDetailRecord || !currentDetailRecord.shareText) return;
-        copyTextToClipboard(currentDetailRecord.shareText);
+
+    // 詳細画面からの1件エクスポート
+    document.getElementById('btn-detail-export')?.addEventListener('click', () => {
+        if (!currentDetailRecord) return;
+        const text = generateRecordExportText(currentDetailRecord);
+        const filename = `moyarihat_${formatDateForFilename(currentDetailRecord.createdAt)}.txt`;
+        const success = downloadTextFile(filename, text);
+        if (success) {
+            showToast('記録を書き出しました');
+        } else {
+            copyTextToClipboard(text, '書き出しに失敗したため、内容をコピーしました');
+        }
+    });
+
+    // 一覧画面からの全件エクスポート
+    document.getElementById('btn-export-all-records')?.addEventListener('click', () => {
+        if (!appState.records || appState.records.length === 0) {
+            showToast('書き出す記録がありません');
+            return;
+        }
+        const text = generateAllRecordsExportText();
+        const filename = `moyarihat_all_${formatDateForFilename(new Date().toISOString())}.txt`;
+        const success = downloadTextFile(filename, text);
+        if (success) {
+            showToast('すべての記録を書き出しました');
+        } else {
+            copyTextToClipboard(text, '書き出しに失敗したため、内容をコピーしました');
+        }
+    });
+
+    // 一覧画面からの選択件エクスポート
+    document.getElementById('btn-export-selected-records')?.addEventListener('click', () => {
+        const selectedRecords = appState.records.filter(r => selectedExportRecordIds.has(r.id));
+        if (selectedRecords.length === 0) {
+            showToast('書き出す記録が選択されていません');
+            return;
+        }
+        const text = generateSelectedRecordsExportText(selectedRecords);
+        const filename = `moyarihat_selected_${formatDateForFilename(new Date().toISOString())}.txt`;
+        const success = downloadTextFile(filename, text);
+        if (success) {
+            showToast('選択した記録を書き出しました');
+        } else {
+            copyTextToClipboard(text, '書き出しに失敗したため、内容をコピーしました');
+        }
+    });
+
+    // フローティングナビの開閉処理
+    document.querySelectorAll('[data-floating-menu-toggle]').forEach(toggleBtn => {
+        toggleBtn.addEventListener('click', (e) => {
+            const currentNav = e.target.closest('[data-floating-nav]');
+            const currentPanel = currentNav.querySelector('.floating-nav-panel');
+
+            // 他のパネルを閉じる
+            document.querySelectorAll('.floating-nav-panel').forEach(panel => {
+                if (panel !== currentPanel) {
+                    panel.hidden = true;
+                }
+            });
+
+            if (currentPanel) {
+                currentPanel.hidden = !currentPanel.hidden;
+            }
+        });
+    });
+
+    // フローティングナビの「上へ」ボタン (閉じる処理を追加)
+    document.querySelectorAll('[data-scroll-top]').forEach(button => {
+        button.addEventListener('click', (e) => {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+            const currentNav = e.target.closest('[data-floating-nav]');
+            if (currentNav) {
+                const currentPanel = currentNav.querySelector('.floating-nav-panel');
+                if (currentPanel) currentPanel.hidden = true;
+            }
+        });
     });
 
     // --- 項目編集 ---
@@ -1544,7 +2101,7 @@ function setupEventListeners() {
         renderEditItems();
     });
 
-    // 修正点1: 項目編集画面からの新規追加
+    // 項目編集画面からの新規追加
     document.getElementById('btn-edit-add-item')?.addEventListener('click', () => {
         const categorySelect = document.getElementById('select-edit-category');
         if (!categorySelect) return;
@@ -1553,7 +2110,7 @@ function setupEventListeners() {
         });
     });
 
-    // 初期項目を戻すボタン（想定され得るIDを登録して対応）
+    // 初期項目を戻すボタン
     const resetBtnIds = ['btn-reset-default', 'btn-restore-default', 'btn-reset-items', 'btn-edit-reset', 'btn-restore-items'];
     resetBtnIds.forEach(id => {
         document.getElementById(id)?.addEventListener('click', () => {
@@ -1564,7 +2121,7 @@ function setupEventListeners() {
         });
     });
 
-    // --- モーダルの操作 (第5段階: 項目追加) ---
+    // --- モーダルの操作 ---
     document.getElementById('btn-about-close')?.addEventListener('click', () => {
         closeModal('modal-about');
     });
@@ -1629,16 +2186,23 @@ function setupEventListeners() {
     });
     document.getElementById('btn-add-body-part')?.addEventListener('click', () => {
         openAddItemModal('bodyPart', 'ユーザー追加', (itemId) => {
-            currentRecord.body.parts.push({ itemId, strength: 'some' });
-            addToSelectedOrder('body');
+            ensureBodyEntry(itemId);
+            currentBodyPartId = itemId;
+            updateBodyOrder();
             renderBodyParts();
+            renderBodySensationsForPart();
+            renderSelectedBodyPartsBar();
         });
     });
     document.getElementById('btn-add-body-sensation')?.addEventListener('click', () => {
+        if (!currentBodyPartId) {
+            showToast('先に部位を選択してください');
+            return;
+        }
         openAddItemModal('bodySensation', 'ユーザー追加', (itemId) => {
-            currentRecord.body.sensations.push({ itemId, strength: 'some' });
-            addToSelectedOrder('body');
-            renderBodySensations();
+            const entry = ensureBodyEntry(currentBodyPartId);
+            entry.sensations.push({ itemId, strength: 'some' });
+            renderBodySensationsForPart();
         });
     });
     document.getElementById('btn-add-action')?.addEventListener('click', () => {
