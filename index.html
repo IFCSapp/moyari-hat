@@ -107,6 +107,7 @@
     <!-- Step 2-1: 外的要因の選択 (サブビュー) -->
     <section id="view-step2-external" class="view sub-view" hidden>
         <header>
+            <button id="btn-external-done" class="header-back-btn">← モヤリの中身に戻る</button>
             <h2>外的要因</h2>
             <p>これは、誰かのせいにするための確認ではありません。今の自分が動きにくくなっている条件を見つけるための画面です。変えられるものがあれば小さく変え、変えにくいものは次の一手を小さくします。</p>
         </header>
@@ -114,14 +115,12 @@
             <!-- JSで選択肢を生成（強さ選択も含む） -->
         </div>
         <button id="btn-add-external">＋近い要因を追加</button>
-        <nav class="bottom-nav">
-            <button id="btn-external-done">選んで戻る</button>
-        </nav>
     </section>
 
     <!-- Step 2-2: 頭の中の通知の選択 (サブビュー) -->
     <section id="view-step2-mind" class="view sub-view" hidden>
         <header>
+            <button id="btn-mind-done" class="header-back-btn">← モヤリの中身に戻る</button>
             <h2>頭の中の通知</h2>
             <p>これは、頭の中に来ている通知です。正しいか間違っているかを、今ここで決めなくて大丈夫です。まずは『来ている』と気づくところまでで十分です。</p>
         </header>
@@ -129,33 +128,30 @@
             <!-- JSで選択肢を生成（強さ選択も含む） -->
         </div>
         <button id="btn-add-mind">＋近い通知を追加</button>
-        <nav class="bottom-nav">
-            <button id="btn-mind-done">選んで戻る</button>
-        </nav>
     </section>
 
     <!-- Step 2-3: 身体感覚の選択 (サブビュー) -->
     <section id="view-step2-body" class="view sub-view" hidden>
         <header>
+            <button id="btn-body-done" class="header-back-btn">← モヤリの中身に戻る</button>
             <h2>身体感覚</h2>
             <p>正確に言えなくても大丈夫です。近いものを選ぶだけで十分です。体に何も感じない、よく分からない、という選択もできます。</p>
         </header>
 
-        <h3>身体部位</h3>
+        <h3>まず、気になる部位を選びます</h3>
         <div id="container-body-parts" class="options-container">
             <!-- JSで選択肢を生成 -->
         </div>
         <button id="btn-add-body-part">＋近い部位を追加</button>
 
-        <h3>感覚</h3>
-        <div id="container-body-sensations" class="options-container">
-            <!-- JSで選択肢を生成（強さ選択も含む） -->
+        <div id="body-sensations-section" style="margin-top: 2rem; border-top: 1px solid var(--color-border); padding-top: 1rem;" hidden>
+            <h3>いま選んでいる部位：<span id="current-body-part-name" style="color: var(--color-primary);"></span></h3>
+            <p style="margin-bottom: 1rem;">近い感覚を選びます</p>
+            <div id="container-body-sensations" class="options-container">
+                <!-- JSで選択肢を生成（強さ選択も含む） -->
+            </div>
+            <button id="btn-add-body-sensation">＋近い感覚を追加</button>
         </div>
-        <button id="btn-add-body-sensation">＋近い感覚を追加</button>
-
-        <nav class="bottom-nav">
-            <button id="btn-body-done">選んで戻る</button>
-        </nav>
     </section>
 
     <!-- Step 3: モヤリ度を選ぶ -->

@@ -1,12 +1,12 @@
 ﻿/**
- * モヤリハット - アプリケーションロジック (第6段階: 項目編集)
+ * モヤリハット - アプリケーションロジック (第7段階: UX改善と身体感覚の構造変更)
  */
 
 /* ========================================
    1. 定数とlocalStorageキー
 ======================================== */
 const STORAGE_KEY = 'MOYARIHAT_STATE_V1';
-const APP_SCHEMA_VERSION = 2; // バージョン2へ引き上げ
+const APP_SCHEMA_VERSION = 3; // バージョン3へ引き上げ（body.entries構造へ変更）
 
 // アプリの初期状態構造
 const INITIAL_STATE = {
@@ -23,8 +23,7 @@ const INITIAL_CURRENT_RECORD = {
     externalFactors: [],
     mindNotifications: [],
     body: {
-        parts: [],
-        sensations: []
+        entries: [] // { partId: string, sensations: [{itemId, strength}] }
     },
     moyariLevel: 0,
     nextActions: []
@@ -34,6 +33,7 @@ let appState = null;
 let currentRecord = JSON.parse(JSON.stringify(INITIAL_CURRENT_RECORD));
 let currentDetailRecord = null; // 詳細表示中のレコード
 let currentAddItemContext = null; // 項目追加モーダルの一時状態
+let currentBodyPartId = null; // 身体感覚で現在選択されている部位
 
 /* ========================================
    2. デフォルト項目データ
@@ -335,12 +335,14 @@ function normalizeState(state) {
 
     const currentVersion = typeof state.schemaVersion === 'number' ? state.schemaVersion : 1;
 
+    // バージョン3未満の場合は身体感覚の構造が変わるため、古い記録はリセットしてスキーマを更新
     if (currentVersion < APP_SCHEMA_VERSION) {
-        state.items = createDefaultItems();
         state.records = [];
         state.schemaVersion = APP_SCHEMA_VERSION;
-    } else {
-        state.schemaVersion = currentVersion;
+    }
+
+    if (state.items.length === 0) {
+        state.items = createDefaultItems();
     }
 
     return state;
@@ -502,7 +504,7 @@ function addCustomItem(category, group, label) {
 }
 
 /* ========================================
-   6. 描画と選択処理 (第2段階)
+   6. 描画と選択処理 (第2段階・第7段階改修)
 ======================================== */
 function getVisibleItemsByCategory(category) {
     const items = appState.items.filter(item => item.category === category && !item.isHidden);
@@ -539,6 +541,9 @@ function renderGroupedOptions(containerId, category, selectedList, options) {
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'option-chip';
+            if (options.currentActiveId === item.id) {
+                btn.classList.add('is-current-part'); // 身体部位の現在選択中ハイライト
+            }
             btn.textContent = item.label;
             btn.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
 
@@ -658,48 +663,85 @@ function renderMindNotifications() {
     });
 }
 
+// --- 身体感覚の新しい描画ロジック ---
+function getBodyEntry(partId) {
+    return currentRecord.body.entries.find(e => e.partId === partId);
+}
+
+function ensureBodyEntry(partId) {
+    let entry = getBodyEntry(partId);
+    if (!entry) {
+        entry = { partId: partId, sensations: [] };
+        currentRecord.body.entries.push(entry);
+    }
+    return entry;
+}
+
+function removeBodyEntry(partId) {
+    currentRecord.body.entries = currentRecord.body.entries.filter(e => e.partId !== partId);
+}
+
+function updateBodyOrder() {
+    if (currentRecord.body.entries.length > 0) {
+        addToSelectedOrder('body');
+    } else {
+        removeFromSelectedOrder('body');
+    }
+}
+
 function renderBodyParts() {
-    renderGroupedOptions('container-body-parts', 'bodyPart', currentRecord.body.parts, {
-        showStrength: true,
-        onSelect: (itemId, strength) => {
-            currentRecord.body.parts.push({ itemId, strength });
-            addToSelectedOrder('body');
+    const selectedParts = currentRecord.body.entries.map(e => ({ itemId: e.partId }));
+    renderGroupedOptions('container-body-parts', 'bodyPart', selectedParts, {
+        showStrength: false, // 部位には強さを出さない
+        currentActiveId: currentBodyPartId,
+        onSelect: (itemId) => {
+            ensureBodyEntry(itemId);
+            currentBodyPartId = itemId;
+            updateBodyOrder();
             renderBodyParts();
+            renderBodySensationsForPart();
         },
         onRemove: (itemId) => {
-            currentRecord.body.parts = currentRecord.body.parts.filter(i => i.itemId !== itemId);
-            if (currentRecord.body.parts.length === 0 && currentRecord.body.sensations.length === 0) {
-                removeFromSelectedOrder('body');
-            }
+            removeBodyEntry(itemId);
+            if (currentBodyPartId === itemId) currentBodyPartId = null;
+            updateBodyOrder();
             renderBodyParts();
-        },
-        onChangeStrength: (itemId, strength) => {
-            const item = currentRecord.body.parts.find(i => i.itemId === itemId);
-            if (item) item.strength = strength;
-            renderBodyParts();
+            renderBodySensationsForPart();
         }
     });
 }
 
-function renderBodySensations() {
-    renderGroupedOptions('container-body-sensations', 'bodySensation', currentRecord.body.sensations, {
+function renderBodySensationsForPart() {
+    const section = document.getElementById('body-sensations-section');
+    if (!section) return;
+
+    if (!currentBodyPartId) {
+        section.hidden = true;
+        return;
+    }
+
+    section.hidden = false;
+    const partNameEl = document.getElementById('current-body-part-name');
+    const partItem = getItemById(currentBodyPartId);
+    if (partNameEl) partNameEl.textContent = partItem ? partItem.label : '不明な部位';
+
+    const entry = getBodyEntry(currentBodyPartId);
+    if (!entry) return;
+
+    renderGroupedOptions('container-body-sensations', 'bodySensation', entry.sensations, {
         showStrength: true,
         onSelect: (itemId, strength) => {
-            currentRecord.body.sensations.push({ itemId, strength });
-            addToSelectedOrder('body');
-            renderBodySensations();
+            entry.sensations.push({ itemId, strength });
+            renderBodySensationsForPart();
         },
         onRemove: (itemId) => {
-            currentRecord.body.sensations = currentRecord.body.sensations.filter(i => i.itemId !== itemId);
-            if (currentRecord.body.parts.length === 0 && currentRecord.body.sensations.length === 0) {
-                removeFromSelectedOrder('body');
-            }
-            renderBodySensations();
+            entry.sensations = entry.sensations.filter(i => i.itemId !== itemId);
+            renderBodySensationsForPart();
         },
         onChangeStrength: (itemId, strength) => {
-            const item = currentRecord.body.sensations.find(i => i.itemId === itemId);
+            const item = entry.sensations.find(i => i.itemId === itemId);
             if (item) item.strength = strength;
-            renderBodySensations();
+            renderBodySensationsForPart();
         }
     });
 }
@@ -733,12 +775,12 @@ function updateCardIndicators() {
 
     updateText('status-external', currentRecord.externalFactors.length);
     updateText('status-mind', currentRecord.mindNotifications.length);
-    const bodyCount = currentRecord.body.parts.length + currentRecord.body.sensations.length;
+    const bodyCount = currentRecord.body.entries.length;
     updateText('status-body', bodyCount);
 }
 
 /* ========================================
-   7. 文章生成と確認 (第3段階)
+   7. 文章生成と確認 (第3段階・第7段階改修)
 ======================================== */
 function getItemById(itemId) {
     return appState.items.find(item => item.id === itemId);
@@ -773,7 +815,7 @@ function getRecordSelectedLabels(record, selectedArray) {
     });
 }
 
-// 将来の記録詳細画面での表示用として関数は残しておく
+// 強さテキスト化
 function getStrengthText(strength) {
     switch (strength) {
         case 'strong': return '強く';
@@ -781,6 +823,71 @@ function getStrengthText(strength) {
         case 'some':
         default: return '';
     }
+}
+
+// 強さでグループ化してDOMを生成する関数 (保存済み・作成中両対応)
+function createStrengthGroupedDOM(itemsWithLabels) {
+    const wrapper = document.createElement('div');
+    const groups = {
+        strong: { label: '◎ 強い', items: itemsWithLabels.filter(i => i.strength === 'strong') },
+        some: { label: '○ ある', items: itemsWithLabels.filter(i => i.strength === 'some' || !i.strength) },
+        slight: { label: '△ 少し', items: itemsWithLabels.filter(i => i.strength === 'slight') }
+    };
+
+    ['strong', 'some', 'slight'].forEach(key => {
+        if (groups[key].items.length > 0) {
+            const groupDiv = document.createElement('div');
+            groupDiv.className = 'strength-group';
+
+            const titleDiv = document.createElement('strong');
+            titleDiv.textContent = groups[key].label;
+            groupDiv.appendChild(titleDiv);
+
+            const ul = document.createElement('ul');
+            groups[key].items.forEach(item => {
+                const li = document.createElement('li');
+                li.textContent = item.label;
+                ul.appendChild(li);
+            });
+            groupDiv.appendChild(ul);
+            wrapper.appendChild(groupDiv);
+        }
+    });
+
+    if (wrapper.childNodes.length === 0) {
+        wrapper.textContent = '未選択';
+    }
+
+    return wrapper;
+}
+
+// 身体感覚の部位と感覚をフラットな配列にする (表示用)
+function getBodySensationsWithLabels(record) {
+    const list = [];
+    if (!record.body || !record.body.entries) return list;
+
+    record.body.entries.forEach(entry => {
+        // ラベル取得は過去記録も考慮
+        const partLabel = record.itemSnapshot && record.itemSnapshot[entry.partId] ?
+            record.itemSnapshot[entry.partId].label : (getItemById(entry.partId)?.label || '不明な部位');
+
+        if (entry.sensations && entry.sensations.length > 0) {
+            entry.sensations.forEach(sens => {
+                const sensLabel = record.itemSnapshot && record.itemSnapshot[sens.itemId] ?
+                    record.itemSnapshot[sens.itemId].label : (getItemById(sens.itemId)?.label || '不明な感覚');
+                list.push({
+                    label: `${partLabel}：${sensLabel}`,
+                    strength: sens.strength
+                });
+            });
+        } else {
+            list.push({
+                label: `${partLabel}：気になっている`,
+                strength: 'some'
+            });
+        }
+    });
+    return list;
 }
 
 function generateSummaryText() {
@@ -802,19 +909,21 @@ function generateSummaryText() {
             const minds = getSelectedLabels(currentRecord.mindNotifications).map(s => `「${s.label}」`).join('、');
             summaryParts.push(`頭の中では、${minds} という通知が来ています。`);
         }
-        else if (category === 'body' && (currentRecord.body.parts.length > 0 || currentRecord.body.sensations.length > 0)) {
-            let bodyText = '';
-            const parts = getSelectedLabels(currentRecord.body.parts).map(s => s.label).join('と');
-            const sensations = getSelectedLabels(currentRecord.body.sensations).map(s => s.label).join('、');
+        else if (category === 'body' && currentRecord.body.entries.length > 0) {
+            let bodyPartsText = [];
+            currentRecord.body.entries.forEach(entry => {
+                const partLabel = getRecordSelectedLabels(currentRecord, [{ itemId: entry.partId, strength: 'some' }])[0].label;
+                const sensationsLabels = getRecordSelectedLabels(currentRecord, entry.sensations).map(s => s.label).join('、');
 
-            if (parts && sensations) {
-                bodyText = `体では、${parts}に、${sensations}という感じがあります。`;
-            } else if (parts) {
-                bodyText = `体では、${parts} が気になります。`;
-            } else if (sensations) {
-                bodyText = `体では、${sensations}という感じがあります。`;
+                if (sensationsLabels) {
+                    bodyPartsText.push(`・${partLabel}：${sensationsLabels}`);
+                } else {
+                    bodyPartsText.push(`・${partLabel}：気になっている`);
+                }
+            });
+            if (bodyPartsText.length > 0) {
+                summaryParts.push(`体では、次のような感じがあります。\n${bodyPartsText.join('\n')}`);
             }
-            if (bodyText) summaryParts.push(bodyText);
         }
     });
 
@@ -834,11 +943,20 @@ function generateShareText() {
 
     // 長くなりすぎるのを防ぐため、外的要因は含めず、行動、身体、頭の通知、次の一手を優先する
     currentRecord.selectedOrder.forEach(category => {
-        if (category === 'body') {
-            const bp = getSelectedLabels(currentRecord.body.parts).map(s => s.label).join('や');
-            const bs = getSelectedLabels(currentRecord.body.sensations).map(s => s.label).join('、');
-            if (bp && bs) parts.push(`体では${bp}に${bs}という感じがあります。`);
-            else if (bs) parts.push(`体では${bs}という感じがあります。`);
+        if (category === 'body' && currentRecord.body.entries.length > 0) {
+            let bodyTextParts = [];
+            currentRecord.body.entries.forEach(entry => {
+                const partLabel = getRecordSelectedLabels(currentRecord, [{ itemId: entry.partId, strength: 'some' }])[0].label;
+                const sensationsLabels = getRecordSelectedLabels(currentRecord, entry.sensations).map(s => s.label).join('、');
+                if (sensationsLabels) {
+                    bodyTextParts.push(`${partLabel}に${sensationsLabels}感じ`);
+                } else {
+                    bodyTextParts.push(`${partLabel}が気になる感じ`);
+                }
+            });
+            if (bodyTextParts.length > 0) {
+                parts.push(`体では${bodyTextParts.join('や、')}があります。`);
+            }
         }
         if (category === 'mind') {
             const mn = getSelectedLabels(currentRecord.mindNotifications).map(s => `「${s.label}」`).join('、');
@@ -874,9 +992,10 @@ function renderReview() {
 
     const actionContainer = document.getElementById('review-next-action');
     if (actionContainer) {
+        actionContainer.innerHTML = '';
         if (currentRecord.nextActions.length > 0) {
-            const actions = getSelectedLabels(currentRecord.nextActions).map(s => `・${s.label}`);
-            actionContainer.textContent = actions.join('\n');
+            const labelsWithStrength = getSelectedLabels(currentRecord.nextActions);
+            actionContainer.appendChild(createStrengthGroupedDOM(labelsWithStrength));
         } else {
             actionContainer.textContent = '未選択';
         }
@@ -889,7 +1008,7 @@ function renderReview() {
 }
 
 /* ========================================
-   8. 記録の保存・一覧・詳細表示 (第4段階)
+   8. 記録の保存・一覧・詳細表示 (第4段階・第7段階改修)
 ======================================== */
 
 // 日付フォーマット関数
@@ -916,8 +1035,12 @@ function createRecordFromCurrent() {
     collectIds(record.behaviorSigns);
     collectIds(record.externalFactors);
     collectIds(record.mindNotifications);
-    collectIds(record.body.parts);
-    collectIds(record.body.sensations);
+    if (record.body && record.body.entries) {
+        record.body.entries.forEach(entry => {
+            itemIds.add(entry.partId);
+            collectIds(entry.sensations);
+        });
+    }
     collectIds(record.nextActions);
 
     record.itemSnapshot = {};
@@ -941,6 +1064,7 @@ function saveCurrentRecord() {
     appState.records.unshift(newRecord);
     saveState();
     currentRecord = JSON.parse(JSON.stringify(INITIAL_CURRENT_RECORD));
+    currentBodyPartId = null; // リセット
 }
 
 // 記録を削除
@@ -1079,7 +1203,7 @@ function renderRecordDetail(recordId) {
 
     container.innerHTML = '';
 
-    const createSection = (title, contentText) => {
+    const createSection = (title, contentDOM) => {
         const section = document.createElement('div');
         section.style.marginBottom = '1rem';
 
@@ -1089,10 +1213,14 @@ function renderRecordDetail(recordId) {
         h3.style.marginBottom = '0.25rem';
         section.appendChild(h3);
 
-        const p = document.createElement('div');
-        p.style.whiteSpace = 'pre-wrap';
-        p.textContent = contentText;
-        section.appendChild(p);
+        if (typeof contentDOM === 'string') {
+            const p = document.createElement('div');
+            p.style.whiteSpace = 'pre-wrap';
+            p.textContent = contentDOM;
+            section.appendChild(p);
+        } else {
+            section.appendChild(contentDOM);
+        }
 
         return section;
     };
@@ -1101,51 +1229,64 @@ function renderRecordDetail(recordId) {
     container.appendChild(createSection('モヤリ度', record.moyariLevel.toString()));
     container.appendChild(createSection('まとめ文', record.summaryText || 'なし'));
 
-    // 選択項目（過去の選択も、ラベルと強さの表示用テキストとして展開する）
-    // getRecordSelectedLabelsを利用してスナップショットのラベルを優先する
-    const selectedContent = [];
+    // 選択項目
+    const selectedContentWrapper = document.createElement('div');
+
     if (record.behaviorSigns.length > 0) {
-        selectedContent.push('【行動のサイン】\n' + getRecordSelectedLabels(record, record.behaviorSigns).map(s => `・${s.label}`).join('\n'));
+        const h = document.createElement('h4');
+        h.textContent = '【行動のサイン】';
+        h.style.marginTop = '0.5em';
+        selectedContentWrapper.appendChild(h);
+
+        const ul = document.createElement('ul');
+        ul.style.listStyleType = 'none';
+        ul.style.paddingLeft = '1em';
+        getRecordSelectedLabels(record, record.behaviorSigns).forEach(s => {
+            const li = document.createElement('li');
+            li.textContent = `・${s.label}`;
+            ul.appendChild(li);
+        });
+        selectedContentWrapper.appendChild(ul);
     }
 
     record.selectedOrder.forEach(category => {
         if (category === 'external' && record.externalFactors.length > 0) {
-            selectedContent.push('【影響していそうな条件】\n' + getRecordSelectedLabels(record, record.externalFactors).map(s => {
-                const st = getStrengthText(s.strength);
-                return st ? `・[${st}] ${s.label}` : `・${s.label}`;
-            }).join('\n'));
+            const h = document.createElement('h4');
+            h.textContent = '【影響していそうな条件】';
+            h.style.marginTop = '0.5em';
+            selectedContentWrapper.appendChild(h);
+            const dom = createStrengthGroupedDOM(getRecordSelectedLabels(record, record.externalFactors));
+            selectedContentWrapper.appendChild(dom);
         }
         if (category === 'mind' && record.mindNotifications.length > 0) {
-            selectedContent.push('【頭の中の通知】\n' + getRecordSelectedLabels(record, record.mindNotifications).map(s => {
-                const st = getStrengthText(s.strength);
-                return st ? `・[${st}] ${s.label}` : `・${s.label}`;
-            }).join('\n'));
+            const h = document.createElement('h4');
+            h.textContent = '【頭の中の通知】';
+            h.style.marginTop = '0.5em';
+            selectedContentWrapper.appendChild(h);
+            const dom = createStrengthGroupedDOM(getRecordSelectedLabels(record, record.mindNotifications));
+            selectedContentWrapper.appendChild(dom);
         }
-        if (category === 'body') {
-            if (record.body.parts.length > 0) {
-                selectedContent.push('【身体部位】\n' + getRecordSelectedLabels(record, record.body.parts).map(s => {
-                    const st = getStrengthText(s.strength);
-                    return st ? `・[${st}] ${s.label}` : `・${s.label}`;
-                }).join('\n'));
-            }
-            if (record.body.sensations.length > 0) {
-                selectedContent.push('【身体感覚】\n' + getRecordSelectedLabels(record, record.body.sensations).map(s => {
-                    const st = getStrengthText(s.strength);
-                    return st ? `・[${st}] ${s.label}` : `・${s.label}`;
-                }).join('\n'));
-            }
+        if (category === 'body' && record.body && record.body.entries && record.body.entries.length > 0) {
+            const h = document.createElement('h4');
+            h.textContent = '【身体感覚】';
+            h.style.marginTop = '0.5em';
+            selectedContentWrapper.appendChild(h);
+            const dom = createStrengthGroupedDOM(getBodySensationsWithLabels(record));
+            selectedContentWrapper.appendChild(dom);
         }
     });
 
-    if (selectedContent.length > 0) {
-        container.appendChild(createSection('選択項目', selectedContent.join('\n\n')));
+    if (selectedContentWrapper.childNodes.length > 0) {
+        container.appendChild(createSection('選択項目', selectedContentWrapper));
     }
 
-    let nextActionsText = '未選択';
+    let nextActionsDOM = document.createElement('div');
     if (record.nextActions && record.nextActions.length > 0) {
-        nextActionsText = getRecordSelectedLabels(record, record.nextActions).map(s => `・${s.label}`).join('\n');
+        nextActionsDOM = createStrengthGroupedDOM(getRecordSelectedLabels(record, record.nextActions));
+    } else {
+        nextActionsDOM.textContent = '未選択';
     }
-    container.appendChild(createSection('次の一手', nextActionsText));
+    container.appendChild(createSection('次の一手', nextActionsDOM));
 
     container.appendChild(createSection('共有文', record.shareText || 'なし'));
 }
@@ -1162,9 +1303,13 @@ function isItemUsedInRecords(itemId) {
         if (record.behaviorSigns?.some(i => i.itemId === itemId)) return true;
         if (record.externalFactors?.some(i => i.itemId === itemId)) return true;
         if (record.mindNotifications?.some(i => i.itemId === itemId)) return true;
-        if (record.body?.parts?.some(i => i.itemId === itemId)) return true;
-        if (record.body?.sensations?.some(i => i.itemId === itemId)) return true;
         if (record.nextActions?.some(i => i.itemId === itemId)) return true;
+        if (record.body && record.body.entries) {
+            for (const entry of record.body.entries) {
+                if (entry.partId === itemId) return true;
+                if (entry.sensations?.some(i => i.itemId === itemId)) return true;
+            }
+        }
     }
     return false;
 }
@@ -1190,7 +1335,6 @@ function renderEditItems() {
 
     items.forEach(item => {
         const itemDiv = document.createElement('div');
-        // CSSクラスに依存しないようスタイルを直接設定
         itemDiv.style.border = '1px solid var(--color-border)';
         itemDiv.style.borderRadius = 'var(--radius-md)';
         itemDiv.style.padding = '1rem';
@@ -1389,6 +1533,7 @@ function setupEventListeners() {
     document.getElementById('btn-home-start')?.addEventListener('click', () => {
         // 新しい記録の初期化
         currentRecord = JSON.parse(JSON.stringify(INITIAL_CURRENT_RECORD));
+        currentBodyPartId = null; // リセット
 
         // スライダーの初期化
         const slider = document.getElementById('input-moyari-level');
@@ -1439,11 +1584,11 @@ function setupEventListeners() {
     });
     document.getElementById('card-body')?.addEventListener('click', () => {
         renderBodyParts();
-        renderBodySensations();
+        renderBodySensationsForPart();
         switchView('view-step2-body');
     });
 
-    // --- Step 2 サブビューの戻る処理 ---
+    // --- Step 2 サブビューの戻る処理 (ヘッダーへ移動) ---
     document.getElementById('btn-external-done')?.addEventListener('click', () => {
         updateCardIndicators();
         switchView('view-step2-cards');
@@ -1507,6 +1652,7 @@ function setupEventListeners() {
     document.getElementById('btn-discard-record')?.addEventListener('click', () => {
         // 破棄時はnullではなく初期値のディープコピーに戻す
         currentRecord = JSON.parse(JSON.stringify(INITIAL_CURRENT_RECORD));
+        currentBodyPartId = null;
         switchView('view-home');
     });
 
@@ -1544,7 +1690,7 @@ function setupEventListeners() {
         renderEditItems();
     });
 
-    // 修正点1: 項目編集画面からの新規追加
+    // 項目編集画面からの新規追加
     document.getElementById('btn-edit-add-item')?.addEventListener('click', () => {
         const categorySelect = document.getElementById('select-edit-category');
         if (!categorySelect) return;
@@ -1553,7 +1699,7 @@ function setupEventListeners() {
         });
     });
 
-    // 初期項目を戻すボタン（想定され得るIDを登録して対応）
+    // 初期項目を戻すボタン
     const resetBtnIds = ['btn-reset-default', 'btn-restore-default', 'btn-reset-items', 'btn-edit-reset', 'btn-restore-items'];
     resetBtnIds.forEach(id => {
         document.getElementById(id)?.addEventListener('click', () => {
@@ -1629,16 +1775,22 @@ function setupEventListeners() {
     });
     document.getElementById('btn-add-body-part')?.addEventListener('click', () => {
         openAddItemModal('bodyPart', 'ユーザー追加', (itemId) => {
-            currentRecord.body.parts.push({ itemId, strength: 'some' });
-            addToSelectedOrder('body');
+            ensureBodyEntry(itemId);
+            currentBodyPartId = itemId;
+            updateBodyOrder();
             renderBodyParts();
+            renderBodySensationsForPart();
         });
     });
     document.getElementById('btn-add-body-sensation')?.addEventListener('click', () => {
+        if (!currentBodyPartId) {
+            showToast('先に部位を選択してください');
+            return;
+        }
         openAddItemModal('bodySensation', 'ユーザー追加', (itemId) => {
-            currentRecord.body.sensations.push({ itemId, strength: 'some' });
-            addToSelectedOrder('body');
-            renderBodySensations();
+            const entry = ensureBodyEntry(currentBodyPartId);
+            entry.sensations.push({ itemId, strength: 'some' });
+            renderBodySensationsForPart();
         });
     });
     document.getElementById('btn-add-action')?.addEventListener('click', () => {
