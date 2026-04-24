@@ -239,24 +239,24 @@ function createDefaultItems() {
         { id: 'body_sensation_noise_hardstay', label: 'じっとしていづらい' }
     ]);
     addItems('bodySensation', '熱・冷え系', [
-        { id: 'body_sensation_temp_hot', label: '熱い' },
+        { id: 'body_sensation_temp_hot', label: '熱っぽい' },
         { id: 'body_sensation_temp_cold', label: '冷たい', appliesToParts: ['body_part_hand', 'body_part_leg', 'body_part_arm', 'body_part_whole', 'body_part_unclear'] },
         { id: 'body_sensation_temp_sweat', label: '汗ばむ' },
-        { id: 'body_sensation_temp_facehot', label: '熱い', appliesToParts: ['body_part_face', 'body_part_head', 'body_part_whole', 'body_part_unclear'] },
-        { id: 'body_sensation_temp_limbcold', label: '冷える', appliesToParts: ['body_part_hand', 'body_part_leg', 'body_part_arm', 'body_part_whole', 'body_part_unclear'] }
+        { id: 'body_sensation_temp_facehot', label: 'ほてる', appliesToParts: ['body_part_face', 'body_part_head', 'body_part_whole', 'body_part_unclear'] },
+        { id: 'body_sensation_temp_limbcold', label: '冷えている', appliesToParts: ['body_part_hand', 'body_part_leg', 'body_part_arm', 'body_part_whole', 'body_part_unclear'] }
     ]);
     addItems('bodySensation', '息・胸まわり', [
         { id: 'body_sensation_breath_shallow', label: '息が浅い', appliesToParts: ['body_part_chest', 'body_part_neck', 'body_part_whole', 'body_part_unclear'] },
-        { id: 'body_sensation_breath_chesttight', label: 'つまる感じ', appliesToParts: ['body_part_chest', 'body_part_whole', 'body_part_unclear'] },
-        { id: 'body_sensation_breath_chestheavy', label: '重い感じ', appliesToParts: ['body_part_chest', 'body_part_whole', 'body_part_unclear'] },
-        { id: 'body_sensation_breath_throat', label: 'つまる感じ', appliesToParts: ['body_part_neck', 'body_part_mouth', 'body_part_whole', 'body_part_unclear'] },
+        { id: 'body_sensation_breath_chesttight', label: '圧迫される感じ', appliesToParts: ['body_part_chest', 'body_part_whole', 'body_part_unclear'] },
+        { id: 'body_sensation_breath_chestheavy', label: '重く乗る感じ', appliesToParts: ['body_part_chest', 'body_part_whole', 'body_part_unclear'] },
+        { id: 'body_sensation_breath_throat', label: '飲み込みにくい感じ', appliesToParts: ['body_part_neck', 'body_part_mouth', 'body_part_whole', 'body_part_unclear'] },
         { id: 'body_sensation_breath_hard', label: '呼吸しづらい感じ', appliesToParts: ['body_part_chest', 'body_part_neck', 'body_part_mouth', 'body_part_whole', 'body_part_unclear'] }
     ]);
     addItems('bodySensation', '感覚が薄い系', [
         { id: 'body_sensation_faint_blur', label: 'ぼんやりする', appliesToParts: ['body_part_head', 'body_part_eye', 'body_part_whole', 'body_part_unclear'] },
         { id: 'body_sensation_faint_far', label: '遠い感じ' },
         { id: 'body_sensation_faint_unreal', label: '実感が薄い' },
-        { id: 'body_sensation_faint_white', label: '白くなる感じ', appliesToParts: ['body_part_head', 'body_part_whole', 'body_part_unclear'] },
+        { id: 'body_sensation_faint_white', label: '真っ白になる感じ', appliesToParts: ['body_part_head', 'body_part_whole', 'body_part_unclear'] },
         { id: 'body_sensation_faint_nothing', label: '何も感じない感じ' }
     ]);
     addItems('bodySensation', '痛み・不快感', [
@@ -381,9 +381,16 @@ function loadState() {
                             needsSave = true;
                         }
                         const idsToUpdateLabel = [
-                            'body_sensation_temp_facehot', 'body_sensation_temp_limbcold',
-                            'body_sensation_breath_chesttight', 'body_sensation_breath_chestheavy',
-                            'body_sensation_breath_throat', 'body_sensation_faint_white'
+                            'body_sensation_temp_hot',
+                            'body_sensation_temp_facehot',
+                            'body_sensation_temp_cold',
+                            'body_sensation_temp_limbcold',
+                            'body_sensation_breath_chesttight',
+                            'body_sensation_breath_chestheavy',
+                            'body_sensation_breath_throat',
+                            'body_sensation_breath_hard',
+                            'body_sensation_faint_blur',
+                            'body_sensation_faint_white'
                         ];
                         if (idsToUpdateLabel.includes(item.id) && item.label !== def.label) {
                             item.label = def.label;
@@ -752,11 +759,36 @@ function addCustomItem(category, group, label) {
 /* ========================================
    6. 描画と選択処理 (第2段階・第8段階改修)
 ======================================== */
-function getVisibleItemsByCategory(category, filterFn = null) {
+function getVisibleItemsByCategory(category, filterFn = null, uniqueByLabel = false, selectedList = []) {
     let items = appState.items.filter(item => item.category === category && !item.isHidden);
 
     if (filterFn) {
         items = items.filter(filterFn);
+    }
+
+    if (uniqueByLabel) {
+        const seen = new Set();
+        const selectedItemIds = new Set(selectedList.map(i => i.itemId));
+        const uniqueItems = [];
+
+        // 選択済みのものを先に確保する
+        items.forEach(item => {
+            if (selectedItemIds.has(item.id)) {
+                uniqueItems.push(item);
+                seen.add(item.label);
+            }
+        });
+
+        // 未選択のものを追加する（ラベルが被らないものだけ）
+        items.forEach(item => {
+            if (!selectedItemIds.has(item.id)) {
+                if (!seen.has(item.label)) {
+                    uniqueItems.push(item);
+                    seen.add(item.label);
+                }
+            }
+        });
+        items = uniqueItems;
     }
 
     const grouped = {};
@@ -775,7 +807,8 @@ function renderGroupedOptions(containerId, category, selectedList, options) {
     container.innerHTML = '';
 
     const filterFn = options.filterFn || null;
-    const groupedItems = getVisibleItemsByCategory(category, filterFn);
+    const isUniqueByLabel = options.uniqueByLabel || false;
+    const groupedItems = getVisibleItemsByCategory(category, filterFn, isUniqueByLabel, selectedList);
     const scaleType = options.scaleType || 'intensity';
 
     for (const groupName in groupedItems) {
@@ -1087,6 +1120,7 @@ function renderBodySensationsForPart() {
     renderGroupedOptions('container-body-sensations', 'bodySensation', entry.sensations, {
         showStrength: true,
         scaleType: 'intensity',
+        uniqueByLabel: true, // 同じラベルの項目を重複表示させない
         filterFn: (item) => {
             if (!item.appliesToParts || item.appliesToParts.length === 0) return true;
             return item.appliesToParts.includes(currentBodyPartId);
@@ -1417,8 +1451,6 @@ function renderRecordsList() {
     appState.records.forEach(record => {
         const itemDiv = document.createElement('div');
         itemDiv.className = 'list-item';
-        itemDiv.style.flexDirection = 'column';
-        itemDiv.style.alignItems = 'flex-start';
 
         // 選択用チェックボックス行
         const selectRowDiv = document.createElement('label');
@@ -1444,18 +1476,14 @@ function renderRecordsList() {
 
         // ヘッダー情報（日付とモヤリ度）
         const headerDiv = document.createElement('div');
-        headerDiv.style.display = 'flex';
-        headerDiv.style.justifyContent = 'space-between';
-        headerDiv.style.width = '100%';
-        headerDiv.style.marginBottom = '0.5rem';
+        headerDiv.className = 'record-item-header';
 
         const dateSpan = document.createElement('span');
-        dateSpan.style.fontWeight = 'bold';
+        dateSpan.className = 'record-item-date';
         dateSpan.textContent = formatDate(record.createdAt);
 
         const levelSpan = document.createElement('span');
-        levelSpan.style.color = 'var(--color-primary)';
-        levelSpan.style.fontWeight = 'bold';
+        levelSpan.className = 'record-item-level';
         levelSpan.textContent = `モヤリ度: ${record.moyariLevel}`;
 
         headerDiv.appendChild(dateSpan);
@@ -1463,9 +1491,7 @@ function renderRecordsList() {
 
         // 概要のテキスト情報（スナップショット優先でラベル取得）
         const contentDiv = document.createElement('div');
-        contentDiv.style.fontSize = '0.9rem';
-        contentDiv.style.color = 'var(--color-text-light)';
-        contentDiv.style.marginBottom = '0.5rem';
+        contentDiv.className = 'record-item-summary';
 
         let behaviorText = '行動のサイン: 未選択';
         if (record.behaviorSigns && record.behaviorSigns.length > 0) {
@@ -1549,12 +1575,11 @@ function renderRecordDetail(recordId) {
 
     const createSection = (title, contentDOM) => {
         const section = document.createElement('div');
-        section.style.marginBottom = '1rem';
+        section.className = 'detail-section';
 
         const h3 = document.createElement('h3');
+        h3.className = 'detail-section-title';
         h3.textContent = title;
-        h3.style.fontSize = '1rem';
-        h3.style.marginBottom = '0.25rem';
         section.appendChild(h3);
 
         if (typeof contentDOM === 'string') {
@@ -1678,66 +1703,36 @@ function renderEditItems() {
 
     items.forEach(item => {
         const itemDiv = document.createElement('div');
-        itemDiv.style.border = '1px solid var(--color-border)';
-        itemDiv.style.borderRadius = 'var(--radius-md)';
-        itemDiv.style.padding = '1rem';
-        itemDiv.style.marginBottom = '1rem';
-        itemDiv.style.backgroundColor = 'var(--color-surface)';
-        itemDiv.style.display = 'flex';
-        itemDiv.style.flexDirection = 'column';
-        itemDiv.style.gap = '0.75rem';
+        itemDiv.className = 'edit-item-card';
 
         // --- ヘッダー領域 ---
         const headerDiv = document.createElement('div');
-        headerDiv.style.display = 'flex';
-        headerDiv.style.justifyContent = 'space-between';
-        headerDiv.style.alignItems = 'flex-start';
-        headerDiv.style.flexWrap = 'wrap';
-        headerDiv.style.gap = '0.5rem';
+        headerDiv.className = 'edit-item-header';
 
         const infoDiv = document.createElement('div');
-        infoDiv.style.display = 'flex';
-        infoDiv.style.flexDirection = 'column';
-        infoDiv.style.gap = '0.25rem';
+        infoDiv.className = 'edit-item-info';
 
         const nameSpan = document.createElement('span');
-        nameSpan.style.fontWeight = 'bold';
-        nameSpan.style.fontSize = '1.1rem';
+        nameSpan.className = 'edit-item-name';
         nameSpan.textContent = item.label;
         if (item.isHidden) {
-            nameSpan.style.textDecoration = 'line-through';
-            nameSpan.style.color = 'var(--color-text-light)';
+            nameSpan.classList.add('is-hidden');
         }
 
         const badgesDiv = document.createElement('div');
-        badgesDiv.style.display = 'flex';
-        badgesDiv.style.gap = '0.5rem';
-        badgesDiv.style.alignItems = 'center';
-        badgesDiv.style.flexWrap = 'wrap';
+        badgesDiv.className = 'edit-item-badges';
 
         const groupSpan = document.createElement('span');
-        groupSpan.style.fontSize = '0.8rem';
-        groupSpan.style.color = 'var(--color-text-light)';
-        groupSpan.style.backgroundColor = 'var(--color-bg)';
-        groupSpan.style.padding = '0.2rem 0.5rem';
-        groupSpan.style.borderRadius = 'var(--radius-sm)';
+        groupSpan.className = 'edit-item-badge badge-group';
         groupSpan.textContent = item.group;
 
         const typeSpan = document.createElement('span');
-        typeSpan.style.fontSize = '0.8rem';
-        typeSpan.style.padding = '0.2rem 0.5rem';
-        typeSpan.style.borderRadius = 'var(--radius-sm)';
+        typeSpan.className = item.isDefault ? 'edit-item-badge badge-default' : 'edit-item-badge badge-custom';
         typeSpan.textContent = item.isDefault ? 'デフォルト' : '追加項目';
-        typeSpan.style.backgroundColor = item.isDefault ? '#e0f7fa' : '#fff3e0';
-        typeSpan.style.color = '#333';
 
         const statusSpan = document.createElement('span');
-        statusSpan.style.fontSize = '0.8rem';
-        statusSpan.style.padding = '0.2rem 0.5rem';
-        statusSpan.style.borderRadius = 'var(--radius-sm)';
+        statusSpan.className = item.isHidden ? 'edit-item-badge badge-hidden' : 'edit-item-badge badge-visible';
         statusSpan.textContent = item.isHidden ? '非表示' : '表示中';
-        statusSpan.style.backgroundColor = item.isHidden ? 'var(--color-bg)' : '#e8f5e9';
-        statusSpan.style.color = item.isHidden ? 'var(--color-error-text)' : '#2e7d32';
 
         badgesDiv.appendChild(groupSpan);
         badgesDiv.appendChild(typeSpan);
@@ -1749,14 +1744,10 @@ function renderEditItems() {
 
         // --- 操作ボタン領域 ---
         const actionsDiv = document.createElement('div');
-        actionsDiv.style.display = 'flex';
-        actionsDiv.style.gap = '0.5rem';
-        actionsDiv.style.flexWrap = 'wrap';
+        actionsDiv.className = 'edit-item-actions';
 
         const renameBtn = document.createElement('button');
         renameBtn.textContent = '名前変更';
-        renameBtn.style.padding = '0.4rem 0.8rem';
-        renameBtn.style.fontSize = '0.9rem';
         renameBtn.addEventListener('click', () => {
             const newName = prompt('新しい名前を入力してください（30文字以内）:', item.label);
             if (newName !== null) {
@@ -1777,8 +1768,6 @@ function renderEditItems() {
 
         const toggleBtn = document.createElement('button');
         toggleBtn.textContent = item.isHidden ? '表示に戻す' : '非表示にする';
-        toggleBtn.style.padding = '0.4rem 0.8rem';
-        toggleBtn.style.fontSize = '0.9rem';
         toggleBtn.addEventListener('click', () => {
             item.isHidden = !item.isHidden;
             saveState();
@@ -1791,11 +1780,8 @@ function renderEditItems() {
         if (!item.isDefault) {
             const deleteBtn = document.createElement('button');
             deleteBtn.textContent = '削除';
-            deleteBtn.style.padding = '0.4rem 0.8rem';
-            deleteBtn.style.fontSize = '0.9rem';
-            deleteBtn.style.backgroundColor = 'var(--color-error-bg)';
-            deleteBtn.style.color = 'var(--color-error-text)';
-            deleteBtn.style.borderColor = 'var(--color-error-text)';
+            // 危険操作の汎用クラスを再利用
+            deleteBtn.className = 'record-delete-button';
             deleteBtn.addEventListener('click', () => {
                 if (isItemUsedInRecords(item.id)) {
                     if (confirm('この項目は過去の記録で使われています。記録の表示は保存時点の言葉で残りますが、今後の選択肢から外したいだけなら『非表示』がおすすめです。それでも削除しますか？')) {
