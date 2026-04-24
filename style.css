@@ -240,7 +240,7 @@ button {
     bottom: 5.5rem;
     z-index: 60;
     display: flex;
-    flex-direction: column;
+    flex-direction: column-reverse; /* 目次ボタンの上側にパネルを開く */
     align-items: flex-end;
     gap: 0.5rem;
 }
@@ -258,29 +258,32 @@ button {
         font-size: 0.9rem;
     }
 
-        .floating-nav button:hover {
-            color: var(--color-primary);
-            background-color: var(--color-primary-light);
-            border-color: var(--color-primary);
-        }
+/* マウス操作環境のみhover効果を適用する */
+@media (hover: hover) and (pointer: fine) {
+    .floating-nav button:hover {
+        color: var(--color-primary);
+        background-color: var(--color-primary-light);
+        border-color: var(--color-primary);
+    }
+}
 
-        .floating-nav button:focus {
-            outline: none;
-            color: var(--color-text);
-            background-color: rgba(255, 255, 255, 0.96);
-            border-color: var(--color-border);
-        }
+.floating-nav button:focus {
+    outline: none;
+    color: var(--color-text);
+    background-color: rgba(255, 255, 255, 0.96);
+    border-color: var(--color-border);
+}
 
-        .floating-nav button:active {
-            color: var(--color-text);
-            background-color: rgba(255, 255, 255, 0.96);
-            border-color: var(--color-border);
-        }
+.floating-nav button:active {
+    color: var(--color-text);
+    background-color: rgba(255, 255, 255, 0.96);
+    border-color: var(--color-border);
+}
 
-        .floating-nav button:focus-visible {
-            outline: 2px solid var(--color-primary);
-            outline-offset: 2px;
-        }
+.floating-nav button:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+}
 
 .floating-nav-panel {
     width: min(240px, calc(100vw - 2rem));
