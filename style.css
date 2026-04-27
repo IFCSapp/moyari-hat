@@ -925,3 +925,66 @@ input[type="range"] {
     width: max-content;
     max-width: 90vw;
 }
+
+/* ========================================
+   設定画面用
+======================================== */
+.settings-block {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-md);
+    margin-bottom: var(--space-md);
+}
+
+    .settings-block h2 {
+        font-size: 1.1rem;
+        color: var(--color-primary);
+        margin-top: 0;
+        margin-bottom: var(--space-sm);
+        border-bottom: 1px solid var(--color-border);
+        padding-bottom: var(--space-xs);
+    }
+
+.settings-info-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    font-size: 0.9rem;
+}
+
+.info-row {
+    display: flex;
+    justify-content: space-between;
+}
+
+.info-label {
+    color: var(--color-text-light);
+}
+
+.info-value {
+    font-weight: bold;
+    color: var(--color-text);
+}
+
+.settings-note {
+    font-size: 0.9rem;
+    color: var(--color-text-light);
+    margin-bottom: var(--space-sm);
+}
+
+#input-restore-json {
+    width: 100%;
+    padding: var(--space-sm);
+    margin-bottom: var(--space-sm);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background-color: var(--color-surface);
+    color: var(--color-text);
+}
+
+.settings-warning-text {
+    font-size: 0.9rem;
+    color: var(--color-error-text);
+    margin-bottom: var(--space-sm);
+}

@@ -7,6 +7,7 @@
 ======================================== */
 const STORAGE_KEY = 'MOYARIHAT_STATE_V1';
 const APP_SCHEMA_VERSION = 3; // バージョン3を維持
+const APP_VERSION = '1.1.0';
 
 // アプリの初期状態構造
 const INITIAL_STATE = {
@@ -14,6 +15,7 @@ const INITIAL_STATE = {
     hasSeenGuide: false,
     items: [], // 項目データ（デフォルト＋追加）
     records: [], // 記録データ
+    lastSavedAt: null,
 };
 
 // 作成中の一時記録データ構造
@@ -35,6 +37,7 @@ let currentDetailRecord = null; // 詳細表示中のレコード
 let currentAddItemContext = null; // 項目追加モーダルの一時状態
 let currentBodyPartId = null; // 身体感覚で現在選択されている部位
 let selectedExportRecordIds = new Set(); // 選択エクスポート用
+let pendingRestoreData = null; // バックアップ復元用
 
 /* ========================================
    2. デフォルト項目データ
@@ -334,6 +337,7 @@ function normalizeState(state) {
     if (typeof state.hasSeenGuide !== 'boolean') state.hasSeenGuide = false;
     if (!Array.isArray(state.items)) state.items = [];
     if (!Array.isArray(state.records)) state.records = [];
+    if (!('lastSavedAt' in state)) state.lastSavedAt = null;
 
     const currentVersion = typeof state.schemaVersion === 'number' ? state.schemaVersion : 1;
 
@@ -417,6 +421,7 @@ function loadState() {
 
 function saveState() {
     try {
+        appState.lastSavedAt = new Date().toISOString();
         localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
     } catch (error) {
         console.error("状態の保存に失敗しました:", error);
@@ -759,6 +764,199 @@ function addCustomItem(category, group, label) {
     appState.items.push(newItem);
     return newItem;
 }
+
+// --- 設定画面の描画 ---
+function renderSettingsView() {
+    const infoContainer = document.getElementById('settings-app-info');
+    if (!infoContainer) return;
+
+    const recordCount = Array.isArray(appState.records) ? appState.records.length : 0;
+    const totalItemCount = Array.isArray(appState.items) ? appState.items.length : 0;
+    const customItemCount = Array.isArray(appState.items)
+        ? appState.items.filter(item => item.isDefault === false).length
+        : 0;
+    const hiddenItemCount = Array.isArray(appState.items)
+        ? appState.items.filter(item => item.isHidden === true).length
+        : 0;
+
+    let approxSizeText = '計算不可';
+    try {
+        const stateString = JSON.stringify(appState);
+        const bytes = new Blob([stateString]).size;
+        if (bytes < 1024) {
+            approxSizeText = `${bytes} B`;
+        } else if (bytes < 1024 * 1024) {
+            approxSizeText = `${(bytes / 1024).toFixed(1)} KB`;
+        } else {
+            approxSizeText = `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+        }
+    } catch (error) {
+        approxSizeText = '計算不可';
+    }
+
+    const lastSaved = appState.lastSavedAt
+        ? formatDate(appState.lastSavedAt)
+        : '未保存';
+
+    infoContainer.innerHTML = `
+        <div class="info-row"><span class="info-label">アプリバージョン:</span> <span class="info-value">${APP_VERSION}</span></div>
+        <div class="info-row"><span class="info-label">データ形式バージョン:</span> <span class="info-value">v${appState.schemaVersion}</span></div>
+        <div class="info-row"><span class="info-label">記録件数:</span> <span class="info-value">${recordCount} 件</span></div>
+        <div class="info-row"><span class="info-label">項目件数:</span> <span class="info-value">${totalItemCount} 件</span></div>
+        <div class="info-row"><span class="info-label">うち追加項目:</span> <span class="info-value">${customItemCount} 件</span></div>
+        <div class="info-row"><span class="info-label">うち非表示:</span> <span class="info-value">${hiddenItemCount} 件</span></div>
+        <div class="info-row"><span class="info-label">データサイズ:</span> <span class="info-value">${approxSizeText}</span></div>
+        <div class="info-row"><span class="info-label">最終保存日時:</span> <span class="info-value">${lastSaved}</span></div>
+    `;
+
+    const restoreInput = document.getElementById('input-restore-json');
+    const restoreButton = document.getElementById('btn-restore-json');
+
+    if (restoreInput) restoreInput.value = '';
+    if (restoreButton) restoreButton.disabled = true;
+    pendingRestoreData = null;
+
+}
+
+function exportBackupJson() {
+    if (!appState) {
+        showToast('バックアップするデータが見つかりません');
+        return;
+    }
+
+    const exportedAt = new Date().toISOString();
+
+    const payload = {
+        appName: 'モヤリハット',
+        backupType: 'moyarihat-full-backup',
+        appVersion: APP_VERSION,
+        schemaVersion: APP_SCHEMA_VERSION,
+        exportedAt: exportedAt,
+        storageKey: STORAGE_KEY,
+        state: appState
+    };
+
+    const jsonText = JSON.stringify(payload, null, 2);
+    const filename = `moyarihat_backup_${formatDateForFilename(exportedAt)}.json`;
+
+    const success = downloadTextFile(filename, jsonText);
+
+    if (success) {
+        showToast('復元用バックアップを書き出しました');
+    } else {
+        copyTextToClipboard(jsonText, 'ファイル保存に失敗したため、バックアップ内容をコピーしました');
+    }
+}
+
+
+function handleRestoreFileSelected(event) {
+    const fileInput = event.target;
+    const file = fileInput.files && fileInput.files[0];
+    const restoreButton = document.getElementById('btn-restore-json');
+
+    pendingRestoreData = null;
+
+    if (restoreButton) {
+        restoreButton.disabled = true;
+    }
+
+    if (!file) {
+        return;
+    }
+
+    const reader = new FileReader();
+
+    reader.onload = (loadEvent) => {
+        try {
+            const parsed = JSON.parse(loadEvent.target.result);
+            let candidateState = null;
+
+            if (
+                parsed &&
+                parsed.backupType === 'moyarihat-full-backup' &&
+                parsed.state &&
+                typeof parsed.state === 'object'
+            ) {
+                candidateState = parsed.state;
+            } else if (
+                parsed &&
+                typeof parsed === 'object' &&
+                Array.isArray(parsed.items) &&
+                Array.isArray(parsed.records)
+            ) {
+                candidateState = parsed;
+            }
+
+            if (!candidateState) {
+                pendingRestoreData = null;
+                if (restoreButton) restoreButton.disabled = true;
+                showToast('モヤリハットのバックアップとして読み込めませんでした');
+                return;
+            }
+
+            pendingRestoreData = candidateState;
+            if (restoreButton) restoreButton.disabled = false;
+            showToast('バックアップファイルを読み込みました');
+        } catch (error) {
+            console.error('バックアップJSONの読み込みに失敗しました:', error);
+            pendingRestoreData = null;
+            if (restoreButton) restoreButton.disabled = true;
+            fileInput.value = '';
+            showToast('JSONファイルとして読み込めませんでした');
+        }
+    };
+
+    reader.onerror = () => {
+        pendingRestoreData = null;
+        if (restoreButton) restoreButton.disabled = true;
+        fileInput.value = '';
+        showToast('ファイルの読み込みに失敗しました');
+    };
+
+    reader.readAsText(file);
+}
+
+function restoreFromSelectedBackup() {
+    if (!pendingRestoreData) {
+        showToast('復元するバックアップが選択されていません');
+        return;
+    }
+
+    const confirmed = confirm(
+        '現在のデータは、読み込んだバックアップの内容に置き換わります。先に現在のバックアップを書き出すことをおすすめします。復元しますか？'
+    );
+
+    if (!confirmed) {
+        return;
+    }
+
+    try {
+        const restoredState = JSON.parse(JSON.stringify(pendingRestoreData));
+        appState = normalizeState(restoredState);
+
+        if (!Array.isArray(appState.items) || appState.items.length === 0) {
+            appState.items = createDefaultItems();
+        }
+
+        saveState();
+        resetCurrentRecord();
+        selectedExportRecordIds.clear();
+        pendingRestoreData = null;
+
+        const restoreInput = document.getElementById('input-restore-json');
+        const restoreButton = document.getElementById('btn-restore-json');
+
+        if (restoreInput) restoreInput.value = '';
+        if (restoreButton) restoreButton.disabled = true;
+
+        renderSettingsView();
+        showToast('バックアップから復元しました');
+    } catch (error) {
+        console.error('バックアップからの復元に失敗しました:', error);
+        showToast('バックアップから復元できませんでした');
+    }
+}
+
 
 /* ========================================
    6. 描画と選択処理 (第2段階・第8段階改修)
@@ -2169,6 +2367,16 @@ function setupEventListeners() {
         }
     });
 
+    // バックアップJSONのエクスポート
+    document.getElementById('btn-backup-json')?.addEventListener('click', () => {
+        exportBackupJson();
+    });
+
+    document.getElementById('input-restore-json')?.addEventListener('change', handleRestoreFileSelected);
+    document.getElementById('btn-restore-json')?.addEventListener('click', () => {
+        restoreFromSelectedBackup();
+    });
+
     // 各画面からの項目追加モーダル呼び出し
     document.getElementById('btn-add-behavior')?.addEventListener('click', () => {
         openAddItemModal('behavior', 'ユーザー追加', (itemId) => {
@@ -2233,6 +2441,15 @@ function setupEventListeners() {
             }
         }
     });
+
+    document.getElementById('btn-home-settings')?.addEventListener('click', () => {
+        renderSettingsView(); //
+        switchView('view-settings');
+    });
+    document.getElementById('btn-settings-home')?.addEventListener('click', () => {
+        switchView('view-home');
+    });
+
 }
 
 // DOMの読み込みが完了したらアプリを初期化
