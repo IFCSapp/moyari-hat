@@ -389,6 +389,61 @@
                 </p>
                 <button id="btn-restore-json" type="button" disabled>読み込んだバックアップで復元する</button>
             </div>
+            <div class="settings-block">
+                <h2>初期化</h2>
+                <p class="settings-note">
+                    保存済みの記録や項目設定を整理できます。消した内容は元に戻せないため、必要に応じて先にバックアップを実行してください。
+                </p>
+
+                <div class="settings-danger-actions">
+                    <button id="btn-clear-records" type="button" class="settings-danger-button">保存済みの記録だけ全削除</button>
+                    <button id="btn-reset-items" type="button" class="settings-danger-button">項目設定だけ初期化</button>
+                </div>
+
+                <p class="settings-warning">
+                    ※保存済みの記録や項目設定を消す操作は元に戻せません。必要に応じて、先にバックアップを書き出してください。
+                </p>
+            </div>
+            <div class="settings-reset-all-box">
+                <h3>すべて初期化</h3>
+                <p class="settings-warning">
+                    記録、追加項目、項目設定、初回ガイドの確認状態をすべて初期状態に戻します。
+                </p>
+
+                <label class="settings-confirm-label" for="confirm-reset-all-check">
+                    <input id="confirm-reset-all-check" type="checkbox">
+                    すべてのデータが消えることを確認しました
+                </label>
+
+                <input id="confirm-reset-all-text" type="text" placeholder="初期化 と入力">
+
+                <button id="btn-reset-all" type="button" class="settings-danger-button" disabled>
+                    すべて初期化する
+                </button>
+            </div>
+            <div class="settings-block">
+                <h2>ガイド</h2>
+                <p class="settings-note">
+                    初回に表示される注意事項をもう一度確認できます。記録や項目設定は消えません。
+                </p>
+                <button id="btn-show-guide-again" type="button">初回ガイドをもう一度表示する</button>
+            </div>
+            <div class="settings-block">
+                <h2>診断情報</h2>
+                <p class="settings-note">
+                    不具合が起きたときに、状況を確認するための情報をコピーします。記録の本文や選択内容は含みません。
+                </p>
+                <button id="btn-copy-diagnostics" type="button">診断情報をコピー</button>
+            </div>
+            <div class="settings-block">
+                <h2>アプリの更新</h2>
+                <p class="settings-note">
+                    画面の表示がおかしいときや、古い画面が残っているときに使います。記録や項目設定は消えません。
+                </p>
+                <button id="btn-hard-reload" type="button">画面を読み込み直す</button>
+                <button id="btn-clear-cache-reload" type="button">キャッシュを消して再読み込み</button>
+                <button id="btn-show-changelog" type="button">更新内容を見る</button>
+            </div>
         </div>
         <nav class="bottom-nav">
             <button id="btn-settings-home">ホームへ戻る</button>
@@ -419,6 +474,16 @@
             </div>
         </div>
     </div>
-
+    <div id="modal-changelog" class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-changelog-title" hidden>
+        <div class="modal-content">
+            <h3 id="modal-changelog-title">更新内容</h3>
+            <div id="changelog-content" class="changelog-content">
+                <!-- JSで更新内容を表示 -->
+            </div>
+            <div class="modal-actions">
+                <button id="btn-changelog-close">閉じる</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

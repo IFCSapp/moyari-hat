@@ -7,7 +7,27 @@
 ======================================== */
 const STORAGE_KEY = 'MOYARIHAT_STATE_V1';
 const APP_SCHEMA_VERSION = 3; // バージョン3を維持
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
+const LAST_SEEN_APP_VERSION_KEY = 'MOYARIHAT_LAST_SEEN_APP_VERSION';
+
+const CHANGELOG = [
+    {
+        version: '1.2.0',
+        date: '2026-04-27',
+        items: [
+            '設定画面を追加しました。',
+            'アプリ情報を確認できるようにしました。',
+            '復元用バックアップの書き出しと読み込みに対応しました。',
+            '保存済み記録と項目設定の初期化を分けました。',
+            'すべて初期化に二段階確認を追加しました。',
+            '初回ガイドをもう一度表示できるようにしました。',
+            '診断情報をコピーできるようにしました。',
+            'アプリの再読み込みとキャッシュ削除に対応しました。',
+            '保存データが壊れた場合に退避するようにしました。',
+            '古いデータ形式を読み込んでも記録を消さないようにしました。'
+        ]
+    }
+];
 
 // アプリの初期状態構造
 const INITIAL_STATE = {
@@ -331,32 +351,118 @@ function createDefaultItems() {
 ======================================== */
 function normalizeState(state) {
     if (!state || typeof state !== 'object') {
-        return JSON.parse(JSON.stringify(INITIAL_STATE));
+        const freshState = JSON.parse(JSON.stringify(INITIAL_STATE));
+        freshState.items = createDefaultItems();
+        return freshState;
     }
 
-    if (typeof state.hasSeenGuide !== 'boolean') state.hasSeenGuide = false;
-    if (!Array.isArray(state.items)) state.items = [];
-    if (!Array.isArray(state.records)) state.records = [];
-    if (!('lastSavedAt' in state)) state.lastSavedAt = null;
+    if (typeof state.schemaVersion !== 'number') {
+        state.schemaVersion = 1;
+    }
 
-    const currentVersion = typeof state.schemaVersion === 'number' ? state.schemaVersion : 1;
+    if (typeof state.hasSeenGuide !== 'boolean') {
+        state.hasSeenGuide = false;
+    }
 
-    // バージョン3未満の場合は身体感覚の構造が変わるため、古い記録はリセットしてスキーマを更新
-    if (currentVersion < APP_SCHEMA_VERSION) {
+    if (!Array.isArray(state.items)) {
+        state.items = [];
+    }
+
+    if (!Array.isArray(state.records)) {
         state.records = [];
-        state.schemaVersion = APP_SCHEMA_VERSION;
+    }
+
+    if (!('lastSavedAt' in state)) {
+        state.lastSavedAt = null;
     }
 
     if (state.items.length === 0) {
         state.items = createDefaultItems();
     }
 
+    state.records = state.records.map(record => {
+        const normalizedRecord = record && typeof record === 'object'
+            ? record
+            : {};
+
+        if (!normalizedRecord.id) {
+            normalizedRecord.id = `record_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        }
+
+        if (!normalizedRecord.createdAt) {
+            normalizedRecord.createdAt = new Date().toISOString();
+        }
+
+        if (!Array.isArray(normalizedRecord.behaviorSigns)) {
+            normalizedRecord.behaviorSigns = [];
+        }
+
+        if (!Array.isArray(normalizedRecord.selectedOrder)) {
+            normalizedRecord.selectedOrder = [];
+        }
+
+        if (!Array.isArray(normalizedRecord.externalFactors)) {
+            normalizedRecord.externalFactors = [];
+        }
+
+        if (!Array.isArray(normalizedRecord.mindNotifications)) {
+            normalizedRecord.mindNotifications = [];
+        }
+
+        if (!normalizedRecord.body || typeof normalizedRecord.body !== 'object') {
+            normalizedRecord.body = { entries: [] };
+        }
+
+        if (!Array.isArray(normalizedRecord.body.entries)) {
+            normalizedRecord.body.entries = [];
+        }
+
+        normalizedRecord.body.entries = normalizedRecord.body.entries.map(entry => {
+            const normalizedEntry = entry && typeof entry === 'object'
+                ? entry
+                : {};
+
+            if (!normalizedEntry.partId) {
+                normalizedEntry.partId = 'body_part_unclear';
+            }
+
+            if (!Array.isArray(normalizedEntry.sensations)) {
+                normalizedEntry.sensations = [];
+            }
+
+            return normalizedEntry;
+        });
+
+        if (typeof normalizedRecord.moyariLevel !== 'number') {
+            normalizedRecord.moyariLevel = 0;
+        }
+
+        if (!Array.isArray(normalizedRecord.nextActions)) {
+            normalizedRecord.nextActions = [];
+        }
+
+        if (typeof normalizedRecord.summaryText !== 'string') {
+            normalizedRecord.summaryText = '';
+        }
+
+        if (!normalizedRecord.itemSnapshot || typeof normalizedRecord.itemSnapshot !== 'object') {
+            normalizedRecord.itemSnapshot = {};
+        }
+
+        return normalizedRecord;
+    });
+
+    state.schemaVersion = APP_SCHEMA_VERSION;
+
     return state;
 }
 
 function loadState() {
+    let stored = null;
+
     try {
-        const stored = localStorage.getItem(STORAGE_KEY);
+        stored = localStorage.getItem(STORAGE_KEY);
+
         if (stored) {
             const parsed = JSON.parse(stored);
             const oldVersion = parsed.schemaVersion || 1;
@@ -414,8 +520,27 @@ function loadState() {
         }
     } catch (error) {
         console.error("状態の読み込みに失敗しました:", error);
+
+        if (stored) {
+            try {
+                const timestamp = new Date()
+                    .toISOString()
+                    .replace(/[^\d]/g, '')
+                    .slice(0, 14);
+
+                const corruptedKey = `MOYARIHAT_STATE_CORRUPTED_${timestamp}`;
+                localStorage.setItem(corruptedKey, stored);
+                console.warn(`壊れた保存データを退避しました: ${corruptedKey}`);
+            } catch (backupError) {
+                console.warn("壊れた保存データの退避にも失敗しました:", backupError);
+            }
+        }
+
         appState = JSON.parse(JSON.stringify(INITIAL_STATE));
         appState.items = createDefaultItems();
+        saveState();
+
+        showToast("保存データの読み込みに失敗したため、初期状態で起動しました");
     }
 }
 
@@ -816,6 +941,14 @@ function renderSettingsView() {
     if (restoreButton) restoreButton.disabled = true;
     pendingRestoreData = null;
 
+    const resetAllCheck = document.getElementById('confirm-reset-all-check');
+    const resetAllText = document.getElementById('confirm-reset-all-text');
+    const resetAllButton = document.getElementById('btn-reset-all');
+
+    if (resetAllCheck) resetAllCheck.checked = false;
+    if (resetAllText) resetAllText.value = '';
+    if (resetAllButton) resetAllButton.disabled = true;
+
 }
 
 function exportBackupJson() {
@@ -957,6 +1090,234 @@ function restoreFromSelectedBackup() {
     }
 }
 
+function clearRecordsFromSettings() {
+    const confirmed = confirm(
+        '保存済みの記録をすべて削除します。項目設定は残ります。実行しますか？'
+    );
+
+    if (!confirmed) return;
+
+    appState.records = [];
+    selectedExportRecordIds.clear();
+
+    saveState();
+    renderSettingsView();
+
+    showToast('保存済みの記録をすべて削除しました');
+}
+
+function resetItemsFromSettings() {
+    const confirmed = confirm(
+        '追加した項目や非表示設定を初期状態に戻します。保存済みの記録は残ります。実行しますか？'
+    );
+
+    if (!confirmed) return;
+
+    appState.items = createDefaultItems();
+
+    saveState();
+    renderSettingsView();
+
+    showToast('項目設定を初期化しました');
+}
+
+function updateResetAllButtonState() {
+    const check = document.getElementById('confirm-reset-all-check');
+    const text = document.getElementById('confirm-reset-all-text');
+    const button = document.getElementById('btn-reset-all');
+
+    if (!check || !text || !button) return;
+
+    button.disabled = !(check.checked && text.value === '初期化');
+}
+
+function resetAllFromSettings() {
+    const confirmed = confirm(
+        'すべての記録、追加項目、項目設定、初回ガイド確認状態を初期化します。この操作は元に戻せません。実行しますか？'
+    );
+
+    if (!confirmed) return;
+
+    appState = JSON.parse(JSON.stringify(INITIAL_STATE));
+    appState.items = createDefaultItems();
+
+    resetCurrentRecord();
+    selectedExportRecordIds.clear();
+    currentDetailRecord = null;
+
+    if (typeof pendingRestoreData !== 'undefined') {
+        pendingRestoreData = null;
+    }
+
+    saveState();
+
+    const check = document.getElementById('confirm-reset-all-check');
+    const text = document.getElementById('confirm-reset-all-text');
+    const button = document.getElementById('btn-reset-all');
+
+    if (check) check.checked = false;
+    if (text) text.value = '';
+    if (button) button.disabled = true;
+
+    showToast('すべてのデータを初期化しました');
+    switchView('view-guide');
+}
+function showGuideAgainFromSettings() {
+    appState.hasSeenGuide = false;
+    saveState();
+    showToast('初回ガイドを表示します');
+    switchView('view-guide');
+}
+
+function getApproxStorageSizeText() {
+    try {
+        const stateString = JSON.stringify(appState);
+        const bytes = new Blob([stateString]).size;
+
+        if (bytes < 1024) {
+            return `${bytes} B`;
+        }
+
+        if (bytes < 1024 * 1024) {
+            return `${(bytes / 1024).toFixed(1)} KB`;
+        }
+
+        return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+    } catch (error) {
+        return '計算不可';
+    }
+}
+
+function copyDiagnostics() {
+    const diagnostics = {
+        appName: 'モヤリハット',
+        appVersion: APP_VERSION,
+        schemaVersion: appState?.schemaVersion ?? null,
+        storageKey: STORAGE_KEY,
+        recordCount: Array.isArray(appState?.records) ? appState.records.length : 0,
+        itemCount: Array.isArray(appState?.items) ? appState.items.length : 0,
+        customItemCount: Array.isArray(appState?.items)
+            ? appState.items.filter(item => item.isDefault === false).length
+            : 0,
+        hiddenItemCount: Array.isArray(appState?.items)
+            ? appState.items.filter(item => item.isHidden === true).length
+            : 0,
+        approximateStorageSize: getApproxStorageSizeText(),
+        lastSavedAt: appState?.lastSavedAt ?? null,
+        userAgent: navigator.userAgent,
+        href: location.href,
+        timestamp: new Date().toISOString()
+    };
+
+    const text = JSON.stringify(diagnostics, null, 2);
+    copyTextToClipboard(text, '診断情報をコピーしました');
+}
+
+function hardReloadFromSettings() {
+    window.location.reload();
+}
+
+async function clearCacheAndReload() {
+    const confirmed = confirm(
+        'このアプリの一時保存データを削除して再読み込みします。記録や項目設定は消えません。実行しますか？'
+    );
+
+    if (!confirmed) return;
+
+    try {
+        if ('caches' in window) {
+            const cacheKeys = await caches.keys();
+
+            const targetKeys = cacheKeys.filter(key =>
+                key.toLowerCase().includes('moyarihat') ||
+                key.toLowerCase().includes('moyari')
+            );
+
+            if (targetKeys.length > 0) {
+                for (const key of targetKeys) {
+                    await caches.delete(key);
+                }
+            } else if (cacheKeys.length > 0) {
+                const deleteAllConfirmed = confirm(
+                    'このアプリ用のキャッシュ名を特定できませんでした。このサイトの一時保存データを削除して再読み込みしますか？記録データは消えません。'
+                );
+
+                if (!deleteAllConfirmed) return;
+
+                for (const key of cacheKeys) {
+                    await caches.delete(key);
+                }
+            }
+        }
+
+        if ('serviceWorker' in navigator) {
+            const registrations = await navigator.serviceWorker.getRegistrations();
+            for (const registration of registrations) {
+                await registration.update();
+            }
+        }
+
+        showToast('再読み込みします');
+        setTimeout(() => {
+            window.location.reload();
+        }, 500);
+    } catch (error) {
+        console.error('キャッシュ削除または更新確認に失敗しました:', error);
+        showToast('キャッシュ削除に失敗しました。通常の再読み込みをします');
+        setTimeout(() => {
+            window.location.reload();
+        }, 800);
+    }
+}
+
+function renderChangelogContent() {
+    const container = document.getElementById('changelog-content');
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    CHANGELOG.forEach(log => {
+        const versionDiv = document.createElement('div');
+        versionDiv.className = 'changelog-version';
+        versionDiv.textContent = `バージョン ${log.version}`;
+
+        const dateDiv = document.createElement('div');
+        dateDiv.className = 'changelog-date';
+        dateDiv.textContent = log.date;
+
+        const ul = document.createElement('ul');
+        ul.className = 'changelog-list';
+
+        log.items.forEach(item => {
+            const li = document.createElement('li');
+            li.textContent = item;
+            ul.appendChild(li);
+        });
+
+        container.appendChild(versionDiv);
+        container.appendChild(dateDiv);
+        container.appendChild(ul);
+    });
+}
+
+function showChangelogModal() {
+    renderChangelogContent();
+    openModal('modal-changelog');
+}
+
+function checkAppUpdate() {
+    const lastSeenVersion = localStorage.getItem(LAST_SEEN_APP_VERSION_KEY);
+
+    if (!lastSeenVersion) {
+        localStorage.setItem(LAST_SEEN_APP_VERSION_KEY, APP_VERSION);
+        return;
+    }
+
+    if (lastSeenVersion !== APP_VERSION) {
+        showChangelogModal();
+        localStorage.setItem(LAST_SEEN_APP_VERSION_KEY, APP_VERSION);
+    }
+}
 
 /* ========================================
    6. 描画と選択処理 (第2段階・第8段階改修)
@@ -2049,6 +2410,7 @@ function initApp() {
         switchView('view-guide');
     } else {
         switchView('view-home');
+        checkAppUpdate();
     }
 }
 
@@ -2367,14 +2729,65 @@ function setupEventListeners() {
         }
     });
 
+    // 記録のクリアや項目のリセット
+
+    document.getElementById('btn-clear-records')?.addEventListener('click', () => {
+        clearRecordsFromSettings();
+    });
+
+    document.getElementById('btn-reset-items')?.addEventListener('click', () => {
+        resetItemsFromSettings();
+    });
+
     // バックアップJSONのエクスポート
     document.getElementById('btn-backup-json')?.addEventListener('click', () => {
         exportBackupJson();
     });
-
+    // バックアップJSONのインポート
     document.getElementById('input-restore-json')?.addEventListener('change', handleRestoreFileSelected);
     document.getElementById('btn-restore-json')?.addEventListener('click', () => {
         restoreFromSelectedBackup();
+    });
+
+    // 全てリセットの確認モーダルの入力監視
+    document.getElementById('confirm-reset-all-check')?.addEventListener('change', () => {
+        updateResetAllButtonState();
+    });
+
+    document.getElementById('confirm-reset-all-text')?.addEventListener('input', () => {
+        updateResetAllButtonState();
+    });
+
+    document.getElementById('btn-reset-all')?.addEventListener('click', () => {
+        resetAllFromSettings();
+    });
+
+    // ガイドをもう一度表示
+    document.getElementById('btn-show-guide-again')?.addEventListener('click', () => {
+        showGuideAgainFromSettings();
+    });
+
+    // 診断結果のコピー
+    document.getElementById('btn-copy-diagnostics')?.addEventListener('click', () => {
+        copyDiagnostics();
+    });
+
+    // ハードリロード
+    document.getElementById('btn-hard-reload')?.addEventListener('click', () => {
+        hardReloadFromSettings();
+    });
+
+    document.getElementById('btn-clear-cache-reload')?.addEventListener('click', () => {
+        clearCacheAndReload();
+    });
+
+    // チェンジログの表示
+    document.getElementById('btn-show-changelog')?.addEventListener('click', () => {
+        showChangelogModal();
+    });
+
+    document.getElementById('btn-changelog-close')?.addEventListener('click', () => {
+        closeModal('modal-changelog');
     });
 
     // 各画面からの項目追加モーダル呼び出し
@@ -2437,6 +2850,11 @@ function setupEventListeners() {
             const aboutModal = document.getElementById('modal-about');
             if (aboutModal && !aboutModal.hidden) {
                 closeModal('modal-about');
+                return;
+            }
+            const changelogModal = document.getElementById('modal-changelog');
+            if (changelogModal && !changelogModal.hidden) {
+                closeModal('modal-changelog');
                 return;
             }
         }
