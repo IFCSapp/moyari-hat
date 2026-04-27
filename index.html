@@ -39,20 +39,28 @@
 
     <!-- ホーム画面 -->
     <section id="view-home" class="view" hidden>
-        <header>
-            <h1>モヤリハット</h1>
-            <h2>小さなモヤモヤに気づき、次の一手を選ぶメモ</h2>
-        </header>
-        <div class="description">
-            <p>「モヤリハット」は、まだ大きく困っているわけではないけれど、少し焦りそう、集中しづらい、止まりそう、相談しづらい、という小さなサインを言葉にするためのツールです。反省や報告のためではなく、早めに自分の状態に気づき、次の小さな一手を選ぶために使います。</p>
-            <p>これは、できていないことを探すためのアプリではありません。今の自分に起きている小さなサインを見つけ、次の一手を選ぶためのアプリです。</p>
+        <div class="home-hero">
+            <div class="home-hero-main">
+                <div class="home-hero-copy">
+                    <h1 class="home-title">モヤリハット</h1>
+                    <p class="home-lead">モヤモヤに気づくために</p>
+                </div>
+
+                <img class="home-hero-icon" src="images/home-hero.png" alt="">
+            </div>
+
+            <div class="description home-description">
+                <p>小さなモヤモヤに気づき、今の状態を整理して、次の一手を選ぶためのメモです。</p>
+                <p>反省や報告ではなく、心身のサインに早めに気づくために使います。</p>
+            </div>
         </div>
+
         <div class="main-actions">
             <button id="btn-home-start">モヤリを記録する</button>
             <button id="btn-home-records">記録を見る</button>
             <button id="btn-home-edit">項目を編集する</button>
-            <button id="btn-home-about">このアプリについて</button>
             <button id="btn-home-settings">設定</button>
+            <button id="btn-home-about">このアプリについて</button>
         </div>
     </section>
 
@@ -293,7 +301,32 @@
         <header>
             <h2>記録一覧</h2>
         </header>
+        <div class="records-filter-box">
+            <h3>検索</h3>
 
+            <label for="input-record-search" class="records-filter-label">キーワード</label>
+            <input id="input-record-search" type="search" placeholder="まとめ文、項目名、次の一手など">
+
+            <label for="select-record-level-filter" class="records-filter-label">モヤリ度</label>
+            <select id="select-record-level-filter">
+                <option value="all">すべて</option>
+                <option value="3">3以上</option>
+                <option value="5">5以上</option>
+                <option value="7">7以上</option>
+                <option value="10">10</option>
+            </select>
+
+            <label for="select-record-sort" class="records-filter-label">並び替え</label>
+            <select id="select-record-sort">
+                <option value="newest">新しい順</option>
+                <option value="oldest">古い順</option>
+                <option value="levelDesc">モヤリ度が高い順</option>
+                <option value="levelAsc">モヤリ度が低い順</option>
+            </select>
+
+            <button id="btn-clear-record-filters" type="button">条件をクリア</button>
+            <p id="records-filter-result-note" class="export-note">すべての記録を表示しています。</p>
+        </div>
         <div class="records-export-actions">
             <button id="btn-export-all-records" class="export-all-button">すべての記録を書き出す</button>
             <button id="btn-export-selected-records" class="export-selected-button" disabled>選択して書き出す</button>
@@ -322,7 +355,8 @@
         </div>
 
         <div class="actions-box">
-            <button id="btn-detail-export" class="detail-export-button">この記録を書き出す</button>
+            <button id="btn-detail-consult-copy" class="detail-consult-copy-button">相談用コピー</button>
+            <button id="btn-detail-export" class="detail-export-button">記録を書き出す</button>
             <button id="btn-detail-delete" class="detail-delete-button">この記録を削除</button>
         </div>
 
@@ -376,7 +410,7 @@
                 <p class="settings-note">
                     記録や項目設定を、復元用のJSONファイルとして保存します。端末変更や更新前の控えとして使えます。
                 </p>
-                <button id="btn-backup-json" type="button">復元用バックアップを書き出す</button>
+                <button id="btn-backup-json" type="button">バックアップ作成</button>
             </div>
             <div class="settings-block">
                 <h2>復元</h2>
@@ -387,7 +421,7 @@
                 <p class="settings-warning-text">
                     ※復元すると、現在のデータは読み込んだ内容に置き換わります。
                 </p>
-                <button id="btn-restore-json" type="button" disabled>読み込んだバックアップで復元する</button>
+                <button id="btn-restore-json" type="button" disabled>復元する</button>
             </div>
             <div class="settings-block">
                 <h2>初期化</h2>
@@ -396,8 +430,8 @@
                 </p>
 
                 <div class="settings-danger-actions">
-                    <button id="btn-clear-records" type="button" class="settings-danger-button">保存済みの記録だけ全削除</button>
-                    <button id="btn-reset-items" type="button" class="settings-danger-button">項目設定だけ初期化</button>
+                    <button id="btn-clear-records" type="button" class="settings-danger-button">記録を全削除</button>
+                    <button id="btn-reset-items" type="button" class="settings-danger-button">項目を初期化</button>
                 </div>
 
                 <p class="settings-warning">
@@ -418,7 +452,7 @@
                 <input id="confirm-reset-all-text" type="text" placeholder="初期化 と入力">
 
                 <button id="btn-reset-all" type="button" class="settings-danger-button" disabled>
-                    すべて初期化する
+                    すべて初期化
                 </button>
             </div>
             <div class="settings-block">
@@ -426,22 +460,22 @@
                 <p class="settings-note">
                     初回に表示される注意事項をもう一度確認できます。記録や項目設定は消えません。
                 </p>
-                <button id="btn-show-guide-again" type="button">初回ガイドをもう一度表示する</button>
+                <button id="btn-show-guide-again" type="button">ガイドを表示</button>
             </div>
             <div class="settings-block">
-                <h2>診断情報</h2>
+                <h2>診断</h2>
                 <p class="settings-note">
                     不具合が起きたときに、状況を確認するための情報をコピーします。記録の本文や選択内容は含みません。
                 </p>
-                <button id="btn-copy-diagnostics" type="button">診断情報をコピー</button>
+                <button id="btn-copy-diagnostics" type="button">診断情報コピー</button>
             </div>
             <div class="settings-block">
-                <h2>アプリの更新</h2>
+                <h2>更新</h2>
                 <p class="settings-note">
                     画面の表示がおかしいときや、古い画面が残っているときに使います。記録や項目設定は消えません。
                 </p>
-                <button id="btn-hard-reload" type="button">画面を読み込み直す</button>
-                <button id="btn-clear-cache-reload" type="button">キャッシュを消して再読み込み</button>
+                <button id="btn-hard-reload" type="button">再読み込み</button>
+                <button id="btn-clear-cache-reload" type="button">キャッシュ更新</button>
                 <button id="btn-show-changelog" type="button">更新内容を見る</button>
             </div>
         </div>
@@ -474,6 +508,59 @@
             </div>
         </div>
     </div>
+    <!-- 相談用コピーのモーダル -->
+    <div id="modal-consult-copy" class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-consult-copy-title" hidden>
+        <div class="modal-content">
+            <h3 id="modal-consult-copy-title">相談用にコピー</h3>
+
+            <p class="modal-description">
+                相談したいことを選ぶと、職員や支援者に見せやすい形でコピーできます。複数選べます。
+            </p>
+
+            <fieldset class="consult-purpose-list">
+                <legend>相談したいことを選ぶ</legend>
+
+                <label class="consult-purpose-option">
+                    <input type="checkbox" class="consult-purpose-checkbox" value="今の状態を一緒に整理したい">
+                    今の状態を一緒に整理したい
+                </label>
+
+                <label class="consult-purpose-option">
+                    <input type="checkbox" class="consult-purpose-checkbox" value="頭の中の通知を一緒に確認したい">
+                    頭の中の通知を一緒に確認したい
+                </label>
+
+                <label class="consult-purpose-option">
+                    <input type="checkbox" class="consult-purpose-checkbox" value="身体感覚を一緒に確認したい">
+                    身体感覚を一緒に確認したい
+                </label>
+
+                <label class="consult-purpose-option">
+                    <input type="checkbox" class="consult-purpose-checkbox" value="影響していそうな条件を一緒に確認したい">
+                    影響していそうな条件を一緒に確認したい
+                </label>
+
+                <label class="consult-purpose-option">
+                    <input type="checkbox" class="consult-purpose-checkbox" value="次に何から始めるかを一緒に決めたい">
+                    次に何から始めるかを一緒に決めたい
+                </label>
+
+                <label class="consult-purpose-option">
+                    <input type="checkbox" class="consult-purpose-checkbox" value="自分で考えた一手でよさそうか確認したい">
+                    自分で考えた一手でよさそうか確認したい
+                </label>
+            </fieldset>
+
+            <label for="input-consult-note" class="consult-note-label">補足：</label>
+            <textarea id="input-consult-note" rows="3"></textarea>
+
+            <div class="modal-actions">
+                <button id="btn-consult-copy-cancel">キャンセル</button>
+                <button id="btn-consult-copy-run">コピーする</button>
+            </div>
+        </div>
+    </div>
+
     <div id="modal-changelog" class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-changelog-title" hidden>
         <div class="modal-content">
             <h3 id="modal-changelog-title">更新内容</h3>

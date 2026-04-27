@@ -7,24 +7,25 @@
 ======================================== */
 const STORAGE_KEY = 'MOYARIHAT_STATE_V1';
 const APP_SCHEMA_VERSION = 3; // バージョン3を維持
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.3.0';
 const LAST_SEEN_APP_VERSION_KEY = 'MOYARIHAT_LAST_SEEN_APP_VERSION';
 
 const CHANGELOG = [
     {
-        version: '1.2.0',
+        version: '1.3.0',
         date: '2026-04-27',
         items: [
             '設定画面を追加しました。',
             'アプリ情報を確認できるようにしました。',
-            '復元用バックアップの書き出しと読み込みに対応しました。',
+            '復元用バックアップの書き出しと読み込みに対応しました.',
             '保存済み記録と項目設定の初期化を分けました。',
             'すべて初期化に二段階確認を追加しました。',
             '初回ガイドをもう一度表示できるようにしました。',
             '診断情報をコピーできるようにしました。',
             'アプリの再読み込みとキャッシュ削除に対応しました。',
             '保存データが壊れた場合に退避するようにしました。',
-            '古いデータ形式を読み込んでも記録を消さないようにしました。'
+            '古いデータ形式を読み込んでも記録を消さないようにしました。',
+            '相談用コピー機能を追加しました'
         ]
     }
 ];
@@ -57,6 +58,11 @@ let currentDetailRecord = null; // 詳細表示中のレコード
 let currentAddItemContext = null; // 項目追加モーダルの一時状態
 let currentBodyPartId = null; // 身体感覚で現在選択されている部位
 let selectedExportRecordIds = new Set(); // 選択エクスポート用
+let recordListFilter = {
+    keyword: '',
+    minLevel: 'all',
+    sort: 'newest'
+};
 let pendingRestoreData = null; // バックアップ復元用
 
 /* ========================================
@@ -794,6 +800,117 @@ function generateRecordExportText(record) {
     return textParts.join('\n');
 }
 
+function openConsultCopyModal() {
+    if (!currentDetailRecord) {
+        showToast('コピーする記録が見つかりません');
+        return;
+    }
+
+    document.querySelectorAll('.consult-purpose-checkbox').forEach(checkbox => {
+        checkbox.checked = false;
+    });
+
+    const noteInput = document.getElementById('input-consult-note');
+    if (noteInput) {
+        noteInput.value = '';
+    }
+
+    openModal('modal-consult-copy');
+}
+
+function closeConsultCopyModal() {
+    closeModal('modal-consult-copy');
+}
+
+function getRecordNextActionsText(record) {
+    if (!record || !Array.isArray(record.nextActions) || record.nextActions.length === 0) {
+        return '';
+    }
+
+    const actions = getRecordSelectedLabels(record, record.nextActions)
+        .map(item => item.label)
+        .filter(Boolean);
+
+    if (actions.length === 0) {
+        return '';
+    }
+
+    return actions.map(label => `・${label}`).join('\n');
+}
+function getConsultProblemText(record) {
+    const rawText = record?.summaryText || '';
+
+    const cleanedText = rawText
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line !== '今は、別のやり方を選ぶと動きやすくなるかもしれません。')
+        .join('\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+
+    return cleanedText || 'まだうまく言葉にできていません。';
+}
+function generateConsultCopyText(record, purposes, noteText) {
+    const parts = [];
+
+    parts.push('【モヤリハット相談メモ】');
+    parts.push('');
+    parts.push('日時：');
+    parts.push(formatDate(record.createdAt));
+    parts.push('');
+    parts.push('モヤリ度：');
+    parts.push(String(record.moyariLevel ?? '未記録'));
+    parts.push('');
+    parts.push('今、困っていること：');
+    parts.push(getConsultProblemText(record));
+    parts.push('');
+    parts.push('相談したいこと：');
+
+    purposes.forEach(purpose => {
+        parts.push(`・${purpose}`);
+    });
+
+    const trimmedNote = noteText ? noteText.trim() : '';
+    if (trimmedNote) {
+        parts.push('');
+        parts.push('補足：');
+        parts.push(trimmedNote);
+    }
+
+    const nextActionsText = getRecordNextActionsText(record);
+    if (nextActionsText) {
+        parts.push('');
+        parts.push('自分で考えた候補：');
+        parts.push(nextActionsText);
+    }
+
+    return parts.join('\n');
+}
+
+function copyConsultMemo() {
+    if (!currentDetailRecord) {
+        showToast('コピーする記録が見つかりません');
+        return;
+    }
+
+    const purposes = Array.from(document.querySelectorAll('.consult-purpose-checkbox:checked'))
+        .map(checkbox => checkbox.value)
+        .filter(Boolean);
+
+    if (purposes.length === 0) {
+        showToast('相談したいことを1つ以上選んでください');
+        return;
+    }
+
+    const noteInput = document.getElementById('input-consult-note');
+    const noteText = noteInput ? noteInput.value : '';
+
+    const text = generateConsultCopyText(currentDetailRecord, purposes, noteText);
+
+    copyTextToClipboard(text, '相談用メモをコピーしました');
+    closeConsultCopyModal();
+}
+
 function generateRecordsExportText(records, title) {
     let parts = [];
     parts.push(`${title}\n`);
@@ -846,6 +963,148 @@ function updateSelectedExportState() {
     }
 }
 
+function syncRecordFilterControls() {
+    const keywordInput = document.getElementById('input-record-search');
+    const levelSelect = document.getElementById('select-record-level-filter');
+    const sortSelect = document.getElementById('select-record-sort');
+
+    if (keywordInput) keywordInput.value = recordListFilter.keyword;
+    if (levelSelect) levelSelect.value = recordListFilter.minLevel;
+    if (sortSelect) sortSelect.value = recordListFilter.sort;
+}
+
+function readRecordFilterControls() {
+    const keywordInput = document.getElementById('input-record-search');
+    const levelSelect = document.getElementById('select-record-level-filter');
+    const sortSelect = document.getElementById('select-record-sort');
+
+    recordListFilter.keyword = keywordInput ? keywordInput.value.trim() : '';
+    recordListFilter.minLevel = levelSelect ? levelSelect.value : 'all';
+    recordListFilter.sort = sortSelect ? sortSelect.value : 'newest';
+}
+
+function getRecordSearchText(record) {
+    const parts = [];
+
+    if (record.createdAt) {
+        parts.push(formatDate(record.createdAt));
+    }
+
+    if (typeof record.moyariLevel === 'number') {
+        parts.push(`モヤリ度 ${record.moyariLevel}`);
+    }
+
+    if (record.summaryText) {
+        parts.push(record.summaryText);
+    }
+
+    if (record.itemSnapshot && typeof record.itemSnapshot === 'object') {
+        Object.values(record.itemSnapshot).forEach(snapshot => {
+            if (snapshot && snapshot.label) {
+                parts.push(snapshot.label);
+            }
+            if (snapshot && snapshot.group) {
+                parts.push(snapshot.group);
+            }
+            if (snapshot && snapshot.category) {
+                parts.push(snapshot.category);
+            }
+        });
+    }
+
+    try {
+        if (Array.isArray(record.behaviorSigns)) {
+            getRecordSelectedLabels(record, record.behaviorSigns).forEach(item => parts.push(item.label));
+        }
+
+        if (Array.isArray(record.externalFactors)) {
+            getRecordSelectedLabels(record, record.externalFactors).forEach(item => parts.push(item.label));
+        }
+
+        if (Array.isArray(record.mindNotifications)) {
+            getRecordSelectedLabels(record, record.mindNotifications).forEach(item => parts.push(item.label));
+        }
+
+        if (Array.isArray(record.nextActions)) {
+            getRecordSelectedLabels(record, record.nextActions).forEach(item => parts.push(item.label));
+        }
+
+        getBodySensationsWithLabels(record).forEach(item => parts.push(item.label));
+    } catch (error) {
+        console.warn('検索用テキストの作成中に一部を読み飛ばしました:', error);
+    }
+
+    return parts.join(' ').toLowerCase();
+}
+
+function getFilteredRecords() {
+    let records = Array.isArray(appState.records) ? [...appState.records] : [];
+
+    const keyword = recordListFilter.keyword.trim().toLowerCase();
+
+    if (keyword) {
+        records = records.filter(record => {
+            return getRecordSearchText(record).includes(keyword);
+        });
+    }
+
+    if (recordListFilter.minLevel !== 'all') {
+        const minLevel = Number(recordListFilter.minLevel);
+        records = records.filter(record => {
+            const level = typeof record.moyariLevel === 'number' ? record.moyariLevel : 0;
+            return level >= minLevel;
+        });
+    }
+
+    records.sort((a, b) => {
+        if (recordListFilter.sort === 'oldest') {
+            return new Date(a.createdAt) - new Date(b.createdAt);
+        }
+
+        if (recordListFilter.sort === 'levelDesc') {
+            return (b.moyariLevel || 0) - (a.moyariLevel || 0);
+        }
+
+        if (recordListFilter.sort === 'levelAsc') {
+            return (a.moyariLevel || 0) - (b.moyariLevel || 0);
+        }
+
+        return new Date(b.createdAt) - new Date(a.createdAt);
+    });
+
+    return records;
+}
+
+function updateRecordFilterResultNote(filteredCount, totalCount) {
+    const note = document.getElementById('records-filter-result-note');
+    if (!note) return;
+
+    const hasFilter =
+        recordListFilter.keyword ||
+        recordListFilter.minLevel !== 'all' ||
+        recordListFilter.sort !== 'newest';
+
+    if (!hasFilter) {
+        note.textContent = totalCount === 0
+            ? '記録はまだありません。'
+            : `すべての記録 ${totalCount} 件を表示しています。`;
+        return;
+    }
+
+    note.textContent = `${totalCount} 件中 ${filteredCount} 件を表示しています。`;
+}
+
+function clearRecordFilters() {
+    recordListFilter = {
+        keyword: '',
+        minLevel: 'all',
+        sort: 'newest'
+    };
+
+    selectedExportRecordIds.clear();
+    syncRecordFilterControls();
+    renderRecordsList();
+}
 
 /* ========================================
    未保存確認とリセットロジック
@@ -2000,9 +2259,16 @@ function renderRecordsList() {
     const container = document.getElementById('container-records-list');
     if (!container) return;
 
+    syncRecordFilterControls();
+
     container.innerHTML = '';
 
-    if (appState.records.length === 0) {
+    const totalCount = Array.isArray(appState.records) ? appState.records.length : 0;
+    const filteredRecords = getFilteredRecords();
+
+    updateRecordFilterResultNote(filteredRecords.length, totalCount);
+
+    if (totalCount === 0) {
         const emptyMsg = document.createElement('p');
         emptyMsg.textContent = 'まだ記録はありません。';
         container.appendChild(emptyMsg);
@@ -2011,11 +2277,19 @@ function renderRecordsList() {
         return;
     }
 
-    appState.records.forEach(record => {
+    if (filteredRecords.length === 0) {
+        const emptyMsg = document.createElement('p');
+        emptyMsg.textContent = '検索条件に合う記録はありません。';
+        container.appendChild(emptyMsg);
+        selectedExportRecordIds.clear();
+        updateSelectedExportState();
+        return;
+    }
+
+    filteredRecords.forEach(record => {
         const itemDiv = document.createElement('div');
         itemDiv.className = 'list-item';
 
-        // 選択用チェックボックス行
         const selectRowDiv = document.createElement('label');
         selectRowDiv.className = 'record-select-row';
 
@@ -2037,7 +2311,6 @@ function renderRecordsList() {
         selectRowDiv.appendChild(checkbox);
         selectRowDiv.appendChild(selectLabelSpan);
 
-        // ヘッダー情報（日付とモヤリ度）
         const headerDiv = document.createElement('div');
         headerDiv.className = 'record-item-header';
 
@@ -2052,7 +2325,6 @@ function renderRecordsList() {
         headerDiv.appendChild(dateSpan);
         headerDiv.appendChild(levelSpan);
 
-        // 概要のテキスト情報（スナップショット優先でラベル取得）
         const contentDiv = document.createElement('div');
         contentDiv.className = 'record-item-summary';
 
@@ -2084,12 +2356,13 @@ function renderRecordsList() {
 
         const bP = document.createElement('div');
         bP.textContent = behaviorText;
+
         const aP = document.createElement('div');
         aP.textContent = actionText;
+
         contentDiv.appendChild(bP);
         contentDiv.appendChild(aP);
 
-        // アクションボタン領域
         const actionsDiv = document.createElement('div');
         actionsDiv.className = 'record-list-actions';
 
@@ -2612,6 +2885,41 @@ function setupEventListeners() {
         }
     });
 
+    // 記録一覧のフィルター操作
+    document.getElementById('input-record-search')?.addEventListener('input', () => {
+        readRecordFilterControls();
+        selectedExportRecordIds.clear();
+        renderRecordsList();
+    });
+
+    document.getElementById('select-record-level-filter')?.addEventListener('change', () => {
+        readRecordFilterControls();
+        selectedExportRecordIds.clear();
+        renderRecordsList();
+    });
+
+    document.getElementById('select-record-sort')?.addEventListener('change', () => {
+        readRecordFilterControls();
+        selectedExportRecordIds.clear();
+        renderRecordsList();
+    });
+
+    document.getElementById('btn-clear-record-filters')?.addEventListener('click', () => {
+        clearRecordFilters();
+    });
+
+    document.getElementById('btn-detail-consult-copy')?.addEventListener('click', () => {
+        openConsultCopyModal();
+    });
+
+    document.getElementById('btn-consult-copy-cancel')?.addEventListener('click', () => {
+        closeConsultCopyModal();
+    });
+
+    document.getElementById('btn-consult-copy-run')?.addEventListener('click', () => {
+        copyConsultMemo();
+    });
+
     // フローティングナビの開閉処理
     document.querySelectorAll('[data-floating-menu-toggle]').forEach(toggleBtn => {
         toggleBtn.addEventListener('click', (e) => {
@@ -2855,6 +3163,11 @@ function setupEventListeners() {
             const changelogModal = document.getElementById('modal-changelog');
             if (changelogModal && !changelogModal.hidden) {
                 closeModal('modal-changelog');
+                return;
+            }
+            const consultCopyModal = document.getElementById('modal-consult-copy');
+            if (consultCopyModal && !consultCopyModal.hidden) {
+                closeConsultCopyModal();
                 return;
             }
         }
