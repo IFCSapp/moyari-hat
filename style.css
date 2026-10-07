@@ -605,6 +605,16 @@ button {
         color: var(--color-error-text);
     }
 
+.body-part-pill-select { width: auto; min-height: 44px; padding: 0.25rem 0.5rem; background: transparent; color: inherit; }
+.body-part-pill-select[aria-pressed="true"] { color: var(--color-secondary); background: var(--color-primary-light); }
+.body-part-pill-remove { width: 44px; height: 44px; min-height: 44px; }
+#moyari-persistence-notice { padding: 1rem; background: var(--color-error-bg); color: var(--color-error-text); border: 1px solid var(--color-border); }
+.moyari-step-progress { font-size: 0.9rem; color: var(--color-text-light); margin-bottom: 0.75rem; }
+#moyari-draft-candidates { margin-top: 1.5rem; padding: 1rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-lg); }
+.moyari-draft-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
+.moyari-draft-row button { width: auto; flex: 1 1 160px; }
+.bottom-nav .btn-draft-pause { font-size: 0.85rem; }
+
 
 /* ========================================
    スライダー (モヤリ度)

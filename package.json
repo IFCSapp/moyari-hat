@@ -1,12 +1,16 @@
 {
   "name": "moyari-hat",
-  "version": "0.1.0",
+  "version": "1.4.0",
   "private": true,
-  "description": "ƒ‚ƒ„ƒŠƒnƒbƒg - ¬‚³‚Èƒ‚ƒ„ƒ‚ƒ„‚É‹C‚Ã‚«AŸ‚Ìˆêè‚ğ‘I‚ÔPWA",
+  "description": "ãƒ¢ãƒ¤ãƒªãƒãƒƒãƒˆ â€” å°ã•ãªãƒ¢ãƒ¤ãƒ¢ãƒ¤ã«æ°—ã¥ãã€æ¬¡ã®ä¸€æ‰‹ã‚’é¸ã¶PWA",
   "scripts": {
-    "start": "http-server -p 5173 -c-1"
+    "start": "http-server -p 5173 -c-1",
+    "test": "node --test tests/*.test.cjs",
+    "test:browser": "node tests/browser-smoke.cjs"
   },
   "devDependencies": {
-    "http-server": "^14.1.1"
+    "http-server": "^14.1.1",
+    "jsdom": "^26.1.0",
+    "playwright-core": "^1.63.0"
   }
 }

@@ -7,10 +7,34 @@
 ======================================== */
 const STORAGE_KEY = 'MOYARIHAT_STATE_V1';
 const APP_SCHEMA_VERSION = 3; // バージョン3を維持
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.4.0';
 const LAST_SEEN_APP_VERSION_KEY = 'MOYARIHAT_LAST_SEEN_APP_VERSION';
+const CURRENT_DRAFT_STORAGE_KEY = 'MOYARIHAT_CURRENT_DRAFT_V1:';
+const CURRENT_DRAFT_SCHEMA_VERSION = 1;
+let currentDraftId = null;
+let currentDraftTimer = null;
+let storageAvailable = true;
+let recoveryNotice = null;
+let recoveryRequired = false;
+let storageReadDenied = false;
+let lastPersistedState = null;
+let currentDraftSourceId = null;
+let currentDraftSourceUpdatedAt = null;
+let recoveryRaw = null;
+let persistedRaw = null;
 
 const CHANGELOG = [
+    {
+        version: '1.4.0',
+        date: '2026-10-07',
+        items: [
+            '入力途中の内容を端末内に自動保存し、続きから再開できるようにしました。',
+            '途中で休むボタンと下書きの削除を追加しました。',
+            '保存に失敗した場合は入力を残し、再試行できるようにしました。',
+            '保存データの読み込みに失敗した場合は、元データを上書きせず保持します。',
+            '各画面の現在位置と選択数を表示し、身体部位の選択・削除を分けました。'
+        ]
+    },
     {
         version: '1.3.0',
         date: '2026-04-27',
@@ -465,15 +489,24 @@ function normalizeState(state) {
 
 function loadState() {
     let stored = null;
+    recoveryRequired = false;
+    storageReadDenied = false;
+    recoveryNotice = null;
+    recoveryRaw = null;
 
     try {
         stored = localStorage.getItem(STORAGE_KEY);
+        persistedRaw = stored;
 
         if (stored) {
             const parsed = JSON.parse(stored);
+            if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.items) || !Array.isArray(parsed.records)) {
+                throw new Error('保存データの形式が正しくありません');
+            }
             const oldVersion = parsed.schemaVersion || 1;
 
             appState = normalizeState(parsed);
+            lastPersistedState = JSON.parse(JSON.stringify(appState));
 
             let needsSave = false;
 
@@ -522,7 +555,7 @@ function loadState() {
         } else {
             appState = JSON.parse(JSON.stringify(INITIAL_STATE));
             appState.items = createDefaultItems();
-            saveState();
+            if (!saveState()) storageAvailable = false;
         }
     } catch (error) {
         console.error("状態の読み込みに失敗しました:", error);
@@ -540,25 +573,240 @@ function loadState() {
             } catch (backupError) {
                 console.warn("壊れた保存データの退避にも失敗しました:", backupError);
             }
+            recoveryRequired = true;
+            recoveryRaw = stored;
+            recoveryNotice = '保存データが壊れている可能性があります。元データは変更せず保持しました。設定画面から先にバックアップを書き出し、内容を確認してから復元または初期化してください。';
+        } else {
+            storageReadDenied = true;
+            recoveryNotice = '端末の保存領域を読み取れません。保存済みデータを空の状態で置き換えることはせず、この起動中は一時利用になります。';
         }
 
         appState = JSON.parse(JSON.stringify(INITIAL_STATE));
         appState.items = createDefaultItems();
-        saveState();
-
-        showToast("保存データの読み込みに失敗したため、初期状態で起動しました");
+        storageAvailable = false;
     }
+
+    renderPersistenceNotice();
+    renderCurrentDraftCandidates();
 }
 
 function saveState() {
+    // Corrupt/read-denied recovery is a deliberate write barrier; quota errors are retryable.
+    if (recoveryRequired || storageReadDenied) {
+        if (lastPersistedState) appState = JSON.parse(JSON.stringify(lastPersistedState));
+        renderPersistenceNotice();
+        return false;
+    }
     try {
-        appState.lastSavedAt = new Date().toISOString();
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
+        if (localStorage.getItem(STORAGE_KEY) !== persistedRaw) {
+            throw new Error('別のタブで保存データが変わりました。下書きを残して再読み込みしてください。');
+        }
+        const nextState = { ...appState, lastSavedAt: new Date().toISOString() };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
+        persistedRaw = JSON.stringify(nextState);
+        appState.lastSavedAt = nextState.lastSavedAt;
+        lastPersistedState = JSON.parse(JSON.stringify(nextState));
+        storageAvailable = true;
+        if (!recoveryRequired) {
+            recoveryNotice = null;
+            renderPersistenceNotice();
+        }
+        return true;
     } catch (error) {
         console.error("状態の保存に失敗しました:", error);
-        showToast("データの保存に失敗しました。端末の空き容量をご確認ください。");
+        if (lastPersistedState) appState = JSON.parse(JSON.stringify(lastPersistedState));
+        storageAvailable = false;
+        renderPersistenceNotice(error.message?.startsWith('別のタブ') ? error.message : 'データを端末に保存できませんでした。入力は画面に残っています。保存領域を確保してから再試行してください。');
+        return false;
     }
 }
+
+function renderPersistenceNotice(message = null) {
+    if (message) recoveryNotice = message;
+    const existing = document.getElementById('moyari-persistence-notice');
+    if (!recoveryNotice && storageAvailable) {
+        existing?.remove();
+        return;
+    }
+    const notice = existing || document.createElement('div');
+    notice.id = 'moyari-persistence-notice';
+    notice.setAttribute('role', 'status');
+    notice.setAttribute('aria-live', 'polite');
+    notice.textContent = recoveryNotice || '端末への保存に失敗しました。入力は画面に残っています。保存領域を確保してから再試行してください。';
+    if (!existing) document.body.prepend(notice);
+}
+
+function readCurrentDraftCandidates() {
+    const drafts = [];
+    try {
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (!key?.startsWith(CURRENT_DRAFT_STORAGE_KEY)) continue;
+            try {
+                const draft = JSON.parse(localStorage.getItem(key));
+                if (draft?.schemaVersion === CURRENT_DRAFT_SCHEMA_VERSION && typeof draft.id === 'string' &&
+                    draft.currentRecord && Array.isArray(draft.currentRecord.behaviorSigns) &&
+                    Array.isArray(draft.currentRecord.externalFactors) && Array.isArray(draft.currentRecord.mindNotifications) &&
+                    Array.isArray(draft.currentRecord.nextActions) && Array.isArray(draft.currentRecord.body?.entries)) drafts.push(draft);
+            } catch (error) { console.warn('下書きの形式を確認できませんでした', error); }
+        }
+    } catch (error) { console.warn('下書きを読み込めませんでした:', error); }
+    return drafts.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+}
+
+function writeCurrentDraft(draft) {
+    try {
+        localStorage.setItem(CURRENT_DRAFT_STORAGE_KEY + draft.id, JSON.stringify(draft));
+        return true;
+    } catch (error) {
+        console.warn('下書きを保存できませんでした:', error);
+        renderPersistenceNotice('端末への下書き保存に失敗しました。現在の入力は画面に残っていますが、再読み込み前に保存領域を確保してください。');
+        return false;
+    }
+}
+
+function captureCurrentDraft() {
+    return {
+        schemaVersion: CURRENT_DRAFT_SCHEMA_VERSION,
+        id: currentDraftId || `draft_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+        updatedAt: new Date().toISOString(),
+        currentRecord: JSON.parse(JSON.stringify(currentRecord)),
+        currentBodyPartId,
+        viewId: document.querySelector('.view:not([hidden])')?.id || 'view-step1-behavior',
+        selectedOrder: [...(currentRecord.selectedOrder || [])]
+    };
+}
+
+function saveCurrentDraftNow() {
+    if (!currentDraftId) return false;
+    if (!writeCurrentDraft(captureCurrentDraft())) return false;
+    // Remove the recovered source only after its replacement is durable.
+    // Leave it alone if another tab has changed it in the meantime.
+    if (currentDraftSourceId && removeCurrentDraft(currentDraftSourceId, currentDraftSourceUpdatedAt)) {
+        currentDraftSourceId = null;
+        currentDraftSourceUpdatedAt = null;
+    }
+    return true;
+}
+
+function scheduleCurrentDraftSave() {
+    if (!currentDraftId) return;
+    clearTimeout(currentDraftTimer);
+    currentDraftTimer = setTimeout(() => { currentDraftTimer = null; saveCurrentDraftNow(); }, 400);
+}
+
+function flushCurrentDraftSave() {
+    clearTimeout(currentDraftTimer);
+    currentDraftTimer = null;
+    return saveCurrentDraftNow();
+}
+
+function removeCurrentDraft(draftId, expectedUpdatedAt = null) {
+    try {
+        const key = CURRENT_DRAFT_STORAGE_KEY + draftId;
+        if (expectedUpdatedAt) {
+            const draft = JSON.parse(localStorage.getItem(key) || 'null');
+            if (draft?.updatedAt !== expectedUpdatedAt) return true;
+        }
+        localStorage.removeItem(key);
+        return true;
+    } catch (error) {
+        renderPersistenceNotice('下書きを削除できませんでした。保存領域を確認してから再試行してください。');
+        return false;
+    }
+}
+
+function renderCurrentDraftCandidates() {
+    const host = document.getElementById('view-home');
+    if (!host) return;
+    host.querySelector('#moyari-draft-candidates')?.remove();
+    const drafts = readCurrentDraftCandidates();
+    if (drafts.length === 0) return;
+    const section = document.createElement('section');
+    section.id = 'moyari-draft-candidates';
+    section.setAttribute('aria-label', '保存された下書き');
+    const heading = document.createElement('h2');
+    heading.textContent = '途中の下書き';
+    section.appendChild(heading);
+    drafts.forEach(draft => {
+        const row = document.createElement('div');
+        row.className = 'moyari-draft-row';
+        const resume = document.createElement('button');
+        resume.type = 'button';
+        resume.textContent = `続きから再開（${new Date(draft.updatedAt).toLocaleString()}）`;
+        resume.addEventListener('click', () => resumeCurrentDraft(draft.id));
+        const discard = document.createElement('button');
+        discard.type = 'button';
+        discard.textContent = '下書きを削除';
+        discard.addEventListener('click', () => {
+            if (!confirm('この下書きを削除しますか？')) return;
+            if (draft.id === currentDraftId) {
+                if (!discardCurrentDraft()) return;
+            } else if (!removeCurrentDraft(draft.id, draft.updatedAt)) return;
+            renderCurrentDraftCandidates();
+        });
+        row.append(resume, discard);
+        section.appendChild(row);
+    });
+    host.appendChild(section);
+}
+
+function resumeCurrentDraft(draftId) {
+    const draft = readCurrentDraftCandidates().find(candidate => candidate.id === draftId);
+    if (!draft) return;
+    currentDraftSourceId = draft.id;
+    currentDraftSourceUpdatedAt = draft.updatedAt;
+    currentDraftId = `draft_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    currentRecord = JSON.parse(JSON.stringify(draft.currentRecord));
+    currentBodyPartId = draft.currentBodyPartId || null;
+    if (!Array.isArray(currentRecord.selectedOrder)) currentRecord.selectedOrder = draft.selectedOrder || [];
+    renderCurrentDraftCandidates();
+    renderBehaviorSigns();
+    renderExternalFactors();
+    renderMindNotifications();
+    renderBodyParts();
+    renderBodySensationsForPart();
+    renderSelectedBodyPartsBar();
+    updateCardIndicators();
+    renderNextActions();
+    renderSummary();
+    renderReview();
+    const slider = document.getElementById('input-moyari-level');
+    const display = document.getElementById('display-moyari-level');
+    if (slider) slider.value = currentRecord.moyariLevel;
+    if (display) display.textContent = currentRecord.moyariLevel;
+    const viewId = document.getElementById(draft.viewId) ? draft.viewId : 'view-step1-behavior';
+    switchView(viewId);
+}
+
+function clearCurrentDraftAfterSave() {
+    clearTimeout(currentDraftTimer);
+    currentDraftTimer = null;
+    let success = !currentDraftId || removeCurrentDraft(currentDraftId);
+    if (currentDraftSourceId) success = removeCurrentDraft(currentDraftSourceId, currentDraftSourceUpdatedAt) && success;
+    if (!success) return false;
+    currentDraftId = null;
+    currentDraftSourceId = null;
+    currentDraftSourceUpdatedAt = null;
+    renderCurrentDraftCandidates();
+    return success;
+}
+
+function beginCurrentDraft() {
+    currentDraftId = `draft_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    currentDraftSourceId = null;
+}
+
+function markCurrentRecordChanged() {
+    const visible = document.querySelector('.view:not([hidden])');
+    if (visible) renderStepProgress(visible);
+    scheduleCurrentDraftSave();
+}
+
+window.addEventListener('pagehide', flushCurrentDraftSave);
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushCurrentDraftSave();
+});
 
 /* ========================================
    4. UI制御 (画面切り替え・モーダル・トースト・クリップボード)
@@ -576,10 +824,32 @@ function switchView(viewId) {
     const targetView = document.getElementById(viewId);
     if (targetView) {
         targetView.hidden = false;
+        if (currentDraftId) flushCurrentDraftSave();
+        renderStepProgress(targetView);
         window.scrollTo(0, 0);
     } else {
         console.error(`View not found: ${viewId}`);
     }
+}
+
+function renderStepProgress(view) {
+    const labels = {
+        'view-step1-behavior': '1 / 6 行動のサイン', 'view-step2-cards': '2 / 6 モヤリの中身',
+        'view-step2-external': '2 / 6 モヤリの中身・外的要因', 'view-step2-mind': '2 / 6 モヤリの中身・頭の中',
+        'view-step2-body': '2 / 6 モヤリの中身・身体感覚', 'view-step3-level': '3 / 6 モヤリ度',
+        'view-step4-summary': '4 / 6 まとめ', 'view-step5-action': '5 / 6 次の一手', 'view-step6-save': '6 / 6 保存'
+    };
+    if (!labels[view.id]) return;
+    let progress = view.querySelector('.moyari-step-progress');
+    if (!progress) {
+        progress = document.createElement('p');
+        progress.className = 'moyari-step-progress';
+        progress.setAttribute('aria-live', 'polite');
+        (view.querySelector('header') || view).prepend(progress);
+    }
+    const count = currentRecord.behaviorSigns.length + currentRecord.externalFactors.length + currentRecord.mindNotifications.length + currentRecord.body.entries.length + currentRecord.nextActions.length;
+    const next = view.id === 'view-step6-save' ? '内容を確認して保存できます' : view.id.startsWith('view-step2-') && view.id !== 'view-step2-cards' ? '選び終えたら上の戻るボタンで戻れます' : '次へ進めます。一つだけでも、未選択でも大丈夫です';
+    progress.textContent = `${labels[view.id]} ・ ${count}件選択 ・ ${next}`;
 }
 
 function openModal(modalId) {
@@ -1128,6 +1398,13 @@ function resetCurrentRecord() {
     currentBodyPartId = null;
 }
 
+function discardCurrentDraft() {
+    if (!clearCurrentDraftAfterSave()) return false;
+    resetCurrentRecord();
+    renderCurrentDraftCandidates();
+    return true;
+}
+
 /* ========================================
    5. 項目データ操作 (第5段階)
 ======================================== */
@@ -1211,6 +1488,11 @@ function renderSettingsView() {
 }
 
 function exportBackupJson() {
+    if (recoveryRequired && recoveryRaw) {
+        if (downloadTextFile('moyarihat-recovery-original.txt', recoveryRaw)) showToast('復旧用の元データを書き出しました');
+        else showToast('元データを書き出せませんでした。端末内の元データは保持しています。');
+        return;
+    }
     if (!appState) {
         showToast('バックアップするデータが見つかりません');
         return;
@@ -1322,15 +1604,40 @@ function restoreFromSelectedBackup() {
         return;
     }
 
+    const previousState = JSON.parse(JSON.stringify(appState));
+    const previousRecovery = { recoveryRequired, storageReadDenied, recoveryNotice, storageAvailable, persistedRaw };
+    let committed = false;
     try {
         const restoredState = JSON.parse(JSON.stringify(pendingRestoreData));
+        if (!restoredState || !Array.isArray(restoredState.items) || !Array.isArray(restoredState.records)) {
+            throw new Error('バックアップの形式が正しくありません');
+        }
         appState = normalizeState(restoredState);
 
         if (!Array.isArray(appState.items) || appState.items.length === 0) {
             appState.items = createDefaultItems();
         }
 
-        saveState();
+        const wasRecoveryBlocked = recoveryRequired;
+        recoveryRequired = false;
+        recoveryNotice = null;
+        storageAvailable = true;
+        storageReadDenied = false;
+        persistedRaw = localStorage.getItem(STORAGE_KEY);
+        if (!saveState()) {
+            appState = previousState;
+            recoveryRequired = previousRecovery.recoveryRequired;
+            storageReadDenied = previousRecovery.storageReadDenied;
+            persistedRaw = previousRecovery.persistedRaw;
+            if (wasRecoveryBlocked) recoveryNotice = '保存データの復旧中に保存できませんでした。元データは保持されています。保存領域を確保してから復元を再試行してください。';
+            showToast('保存に失敗したため、バックアップから復元できませんでした');
+            return;
+        }
+        committed = true;
+        recoveryRequired = false;
+        recoveryNotice = null;
+        storageAvailable = true;
+        renderPersistenceNotice();
         resetCurrentRecord();
         selectedExportRecordIds.clear();
         pendingRestoreData = null;
@@ -1344,6 +1651,15 @@ function restoreFromSelectedBackup() {
         renderSettingsView();
         showToast('バックアップから復元しました');
     } catch (error) {
+        if (!committed) {
+            appState = previousState;
+            recoveryRequired = previousRecovery.recoveryRequired;
+            storageReadDenied = previousRecovery.storageReadDenied;
+            persistedRaw = previousRecovery.persistedRaw;
+            storageAvailable = previousRecovery.storageAvailable;
+            recoveryNotice = previousRecovery.recoveryNotice;
+            renderPersistenceNotice();
+        }
         console.error('バックアップからの復元に失敗しました:', error);
         showToast('バックアップから復元できませんでした');
     }
@@ -1357,9 +1673,8 @@ function clearRecordsFromSettings() {
     if (!confirmed) return;
 
     appState.records = [];
+    if (!saveState()) return;
     selectedExportRecordIds.clear();
-
-    saveState();
     renderSettingsView();
 
     showToast('保存済みの記録をすべて削除しました');
@@ -1373,8 +1688,7 @@ function resetItemsFromSettings() {
     if (!confirmed) return;
 
     appState.items = createDefaultItems();
-
-    saveState();
+    if (!saveState()) return;
     renderSettingsView();
 
     showToast('項目設定を初期化しました');
@@ -1397,18 +1711,29 @@ function resetAllFromSettings() {
 
     if (!confirmed) return;
 
+    const previousState = JSON.parse(JSON.stringify(appState));
+    const previousPersistedRaw = persistedRaw;
     appState = JSON.parse(JSON.stringify(INITIAL_STATE));
     appState.items = createDefaultItems();
 
-    resetCurrentRecord();
+    const wasRecoveryRequired = recoveryRequired;
+    const wasReadDenied = storageReadDenied;
+    recoveryRequired = false;
+    storageReadDenied = false;
+    try { persistedRaw = localStorage.getItem(STORAGE_KEY); } catch (error) { storageReadDenied = true; }
+    if (!saveState()) {
+        appState = previousState;
+        persistedRaw = previousPersistedRaw;
+        recoveryRequired = wasRecoveryRequired;
+        storageReadDenied = wasReadDenied;
+        showToast('保存に失敗したため、初期化を完了できませんでした');
+        return;
+    }
     selectedExportRecordIds.clear();
     currentDetailRecord = null;
-
-    if (typeof pendingRestoreData !== 'undefined') {
-        pendingRestoreData = null;
-    }
-
-    saveState();
+    pendingRestoreData = null;
+    discardCurrentDraft();
+    readCurrentDraftCandidates().forEach(draft => removeCurrentDraft(draft.id));
 
     const check = document.getElementById('confirm-reset-all-check');
     const text = document.getElementById('confirm-reset-all-text');
@@ -1423,7 +1748,7 @@ function resetAllFromSettings() {
 }
 function showGuideAgainFromSettings() {
     appState.hasSeenGuide = false;
-    saveState();
+    if (!saveState()) return;
     showToast('初回ガイドを表示します');
     switchView('view-guide');
 }
@@ -1565,16 +1890,12 @@ function showChangelogModal() {
 }
 
 function checkAppUpdate() {
-    const lastSeenVersion = localStorage.getItem(LAST_SEEN_APP_VERSION_KEY);
-
-    if (!lastSeenVersion) {
+    try {
+        const lastSeenVersion = localStorage.getItem(LAST_SEEN_APP_VERSION_KEY);
+        if (lastSeenVersion && lastSeenVersion !== APP_VERSION) showChangelogModal();
         localStorage.setItem(LAST_SEEN_APP_VERSION_KEY, APP_VERSION);
-        return;
-    }
-
-    if (lastSeenVersion !== APP_VERSION) {
-        showChangelogModal();
-        localStorage.setItem(LAST_SEEN_APP_VERSION_KEY, APP_VERSION);
+    } catch (error) {
+        console.warn('更新情報を保存できませんでした', error);
     }
 }
 
@@ -1663,6 +1984,7 @@ function renderGroupedOptions(containerId, category, selectedList, options) {
                 } else {
                     options.onSelect(item.id, 'some');
                 }
+                markCurrentRecordChanged();
             });
 
             wrapper.appendChild(btn);
@@ -1677,6 +1999,7 @@ function renderGroupedOptions(containerId, category, selectedList, options) {
                 removeBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
                     options.onRemove(item.id);
+                    markCurrentRecordChanged();
                 });
                 wrapper.appendChild(removeBtn);
             }
@@ -1714,6 +2037,7 @@ function renderGroupedOptions(containerId, category, selectedList, options) {
                         e.stopPropagation();
                         if (options.onChangeStrength) {
                             options.onChangeStrength(item.id, st.val);
+                            markCurrentRecordChanged();
                         }
                     });
                     strengthContainer.appendChild(sBtn);
@@ -1840,48 +2164,48 @@ function renderSelectedBodyPartsBar() {
 
     bar.hidden = false;
     container.innerHTML = '';
+    const entries = currentRecord.body.entries;
 
-    currentRecord.body.entries.forEach(entry => {
+    entries.forEach((entry, index) => {
         const item = getItemById(entry.partId);
         if (!item) return;
 
-        const pill = document.createElement('button');
-        pill.type = 'button';
+        const pill = document.createElement('div');
         pill.className = 'body-part-pill';
-        if (entry.partId === currentBodyPartId) {
-            pill.classList.add('is-active');
-        }
-
-        const labelSpan = document.createElement('span');
-        labelSpan.textContent = item.label;
-        pill.appendChild(labelSpan);
+        const selectBtn = document.createElement('button');
+        selectBtn.type = 'button';
+        selectBtn.className = 'body-part-pill-select';
+        selectBtn.textContent = item.label;
+        selectBtn.setAttribute('aria-pressed', String(entry.partId === currentBodyPartId));
+        selectBtn.addEventListener('click', () => {
+            currentBodyPartId = entry.partId;
+            renderBodyParts();
+            renderBodySensationsForPart();
+            renderSelectedBodyPartsBar();
+            markCurrentRecordChanged();
+        });
 
         const removeBtn = document.createElement('button');
         removeBtn.type = 'button';
         removeBtn.className = 'body-part-pill-remove';
         removeBtn.textContent = '×';
         removeBtn.setAttribute('aria-label', `${item.label}を削除`);
-        removeBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
+        removeBtn.addEventListener('click', () => {
             removeBodyEntry(entry.partId);
             if (currentBodyPartId === entry.partId) {
-                const nextEntry = currentRecord.body.entries[0];
-                currentBodyPartId = nextEntry ? nextEntry.partId : null;
+            const nextEntry = currentRecord.body.entries.find(candidate => candidate.partId !== entry.partId);
+            currentBodyPartId = nextEntry ? nextEntry.partId : null;
             }
             updateBodyOrder();
             renderBodyParts();
             renderBodySensationsForPart();
             renderSelectedBodyPartsBar();
+            const nextSelect = container.querySelector('.body-part-pill-select');
+            const bodyChoice = document.querySelector('#container-body-parts .option-chip');
+            (nextSelect || bodyChoice)?.focus();
+            markCurrentRecordChanged();
         });
-
-        pill.addEventListener('click', () => {
-            currentBodyPartId = entry.partId;
-            renderBodyParts();
-            renderBodySensationsForPart();
-            renderSelectedBodyPartsBar();
-        });
-
-        pill.appendChild(removeBtn);
+        pill.append(selectBtn, removeBtn);
         container.appendChild(pill);
     });
 }
@@ -2236,18 +2560,30 @@ function createRecordFromCurrent() {
 
 // 記録を保存
 function saveCurrentRecord() {
+    const previousRecords = appState.records;
     const newRecord = createRecordFromCurrent();
-    appState.records.unshift(newRecord);
-    saveState();
+    appState.records = [newRecord, ...previousRecords];
+    if (!saveState()) {
+        flushCurrentDraftSave();
+        return false;
+    }
+    if (!clearCurrentDraftAfterSave()) {
+        // The record is durable; keep the old draft rather than writing an
+        // empty replacement when cleanup fails.
+        currentDraftId = null;
+        currentDraftSourceId = null;
+        currentDraftSourceUpdatedAt = null;
+    }
     resetCurrentRecord();
+    return true;
 }
 
 // 記録を削除
 function deleteRecord(recordId) {
     if (confirm("この記録を削除してもよろしいですか？")) {
         appState.records = appState.records.filter(r => r.id !== recordId);
+        if (!saveState()) return false;
         selectedExportRecordIds.delete(recordId);
-        saveState();
         updateSelectedExportState();
         return true;
     }
@@ -2597,7 +2933,7 @@ function renderEditItems() {
                     return;
                 }
                 item.label = trimmed;
-                saveState();
+                if (!saveState()) return;
                 renderEditItems();
             }
         });
@@ -2606,7 +2942,7 @@ function renderEditItems() {
         toggleBtn.textContent = item.isHidden ? '表示に戻す' : '非表示にする';
         toggleBtn.addEventListener('click', () => {
             item.isHidden = !item.isHidden;
-            saveState();
+            if (!saveState()) return;
             renderEditItems();
         });
 
@@ -2622,13 +2958,13 @@ function renderEditItems() {
                 if (isItemUsedInRecords(item.id)) {
                     if (confirm('この項目は過去の記録で使われています。記録の表示は保存時点の言葉で残りますが、今後の選択肢から外したいだけなら『非表示』がおすすめです。それでも削除しますか？')) {
                         appState.items = appState.items.filter(i => i.id !== item.id);
-                        saveState();
+                        if (!saveState()) return;
                         renderEditItems();
                     }
                 } else {
                     if (confirm('この項目を削除しますか？')) {
                         appState.items = appState.items.filter(i => i.id !== item.id);
-                        saveState();
+                        if (!saveState()) return;
                         renderEditItems();
                     }
                 }
@@ -2665,7 +3001,7 @@ function restoreDefaultItems(category) {
         }
     });
 
-    saveState();
+    if (!saveState()) return;
     renderEditItems();
     showToast('初期項目を復元しました');
 }
@@ -2677,6 +3013,22 @@ function initApp() {
     loadState();
 
     setupEventListeners();
+    document.querySelectorAll('.view[id^="view-step"] .bottom-nav').forEach(nav => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'btn-draft-pause';
+        button.textContent = '途中で休む';
+        button.addEventListener('click', () => {
+            if (!flushCurrentDraftSave()) return;
+            clearTimeout(currentDraftTimer);
+            currentDraftId = null;
+            currentDraftSourceId = null;
+            resetCurrentRecord();
+            renderCurrentDraftCandidates();
+            switchView('view-home');
+        });
+        nav.appendChild(button);
+    });
 
     // 初回ガイドの表示判定
     if (!appState.hasSeenGuide) {
@@ -2691,16 +3043,17 @@ function setupEventListeners() {
     // --- 初回ガイド ---
     document.getElementById('btn-guide-agree')?.addEventListener('click', () => {
         appState.hasSeenGuide = true;
-        saveState();
+        if (!saveState()) showToast('この起動中だけ利用できます。端末への保存はできません。');
         switchView('view-home');
     });
 
     // --- ホーム画面 ---
     document.getElementById('btn-home-start')?.addEventListener('click', () => {
-        // 新しい記録と選択状態の初期化
+        const candidates = readCurrentDraftCandidates();
+        if (candidates.length && !confirm('保存済みの下書きは残したまま、新しい記録を始めますか？')) return;
+        beginCurrentDraft();
         resetCurrentRecord();
-
-        // スライダーの初期化
+        renderCurrentDraftCandidates();
         const slider = document.getElementById('input-moyari-level');
         const display = document.getElementById('display-moyari-level');
         if (slider && display) {
@@ -2726,7 +3079,7 @@ function setupEventListeners() {
     // --- Step 1: 行動 ---
     document.getElementById('btn-step1-back')?.addEventListener('click', () => {
         if (!confirmDiscardDraft()) return;
-        resetCurrentRecord();
+        if (!discardCurrentDraft()) return;
         switchView('view-home');
     });
     document.getElementById('btn-step1-next')?.addEventListener('click', () => {
@@ -2778,6 +3131,7 @@ function setupEventListeners() {
             const val = parseInt(e.target.value, 10);
             currentRecord.moyariLevel = val;
             display.textContent = val;
+            markCurrentRecordChanged();
         });
     }
 
@@ -2813,13 +3167,13 @@ function setupEventListeners() {
         switchView('view-step5-action');
     });
     document.getElementById('btn-save-record')?.addEventListener('click', () => {
-        saveCurrentRecord();
+        if (!saveCurrentRecord()) return;
         showToast("記録を保存しました");
         switchView('view-home');
     });
     document.getElementById('btn-discard-record')?.addEventListener('click', () => {
         if (!confirmDiscardDraft()) return;
-        resetCurrentRecord();
+        if (!discardCurrentDraft()) return;
         switchView('view-home');
     });
 
@@ -3027,13 +3381,13 @@ function setupEventListeners() {
             currentAddItemContext.group,
             label
         );
-        saveState();
-
+        if (!saveState()) return;
         const callback = currentAddItemContext.afterAddCallback;
         closeAddItemModal(); // ここで currentAddItemContext = null になる
 
         if (callback) {
             callback(newItem.id);
+            markCurrentRecordChanged();
         }
     });
 
