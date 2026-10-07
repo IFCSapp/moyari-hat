@@ -900,6 +900,34 @@ input[type="range"] {
     box-shadow: var(--shadow-md);
 }
 
+/* Keep the long changelog and its close action inside the viewport. */
+#modal-changelog .modal-content {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 2 * var(--space-md));
+    max-height: calc(100vh - 2 * var(--space-md));
+    min-height: 0;
+    overflow: hidden;
+}
+
+@supports (height: 100dvh) {
+    #modal-changelog .modal-content {
+        height: calc(100dvh - 2 * var(--space-md));
+        max-height: calc(100dvh - 2 * var(--space-md));
+    }
+}
+
+#modal-changelog #modal-changelog-title,
+#modal-changelog .modal-actions {
+    flex-shrink: 0;
+}
+
+#modal-changelog #changelog-content {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
     .modal-content input {
         width: 100%;
         padding: var(--space-sm);
